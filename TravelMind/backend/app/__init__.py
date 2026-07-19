@@ -1,0 +1,2 @@
+"""TravelMind backend."""
+

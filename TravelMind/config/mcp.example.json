@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "demo": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "tests.fake_mcp_server"]
+    }
+  }
+}

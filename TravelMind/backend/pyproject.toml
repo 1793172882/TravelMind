@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "travelmind"
+version = "0.1.0"
+description = "A harness-driven intelligent travel assistant"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.128,<1",
+    "uvicorn[standard]>=0.35,<1",
+    "sqlalchemy>=2.0,<3",
+    "pymysql>=1.1,<2",
+    "pydantic-settings>=2.10,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28,<1",
+    "pytest>=8,<10",
+    "ruff>=0.12,<1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
