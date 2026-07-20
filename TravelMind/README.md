@@ -11,7 +11,8 @@ Agent Runtime（LangChain + LangGraph）
     ↓
 Harness（Registry → Permission → Interrupt → Recovery）
     ├── 本地工具
-    └── MCP Client Manager → 飞书/地图/其他 MCP Server
+    ├── 高德 Web 服务 → 地点/POI/天气/路线
+    └── MCP Client Manager → 飞书/其他 MCP Server
 
 Controller → Service → Repository → SQLAlchemy ORM → MySQL
 ```
@@ -20,6 +21,8 @@ Controller → Service → Repository → SQLAlchemy ORM → MySQL
 
 - MySQL 行程与日程项 CRUD，严格遵循 Controller → Service → Repository 分层。
 - LangChain `create_agent` 单 Agent 与 LangGraph Checkpoint。
+- 阿里云百炼千问 `qwen3.5-plus` 默认模型（OpenAI 兼容协议）。
+- 高德真实地理编码、POI、天气、步行/驾车/公交路线工具。
 - 基于 `thread_id` 的多轮对话、工具调用、人工审批、暂停与恢复。
 - Harness Tool Registry、Pydantic 参数校验、权限分级、失败重试。
 - 上下文压缩、用户偏好 Memory、依赖任务、Skill 按需加载的最小实现。
@@ -27,9 +30,9 @@ Controller → Service → Repository → SQLAlchemy ORM → MySQL
 - MCP 工具动态发现并进入统一 Harness 权限管线。
 - 飞书 Webhook challenge、token/签名校验、文本消息转换和事件去重。
 - 无 Node 依赖的最小聊天/审批/行程演示页面。
-- Fake MCP Server 与 24 个自动化测试（包含真实 stdio MCP 生命周期）。
+- Fake MCP Server 与 27 个自动化测试（包含真实 stdio MCP 生命周期）。
 
-当前是“可运行的后端 MVP”，不是所有外部服务都开箱即用。真实模型调用需要模型密钥；飞书写文档、日历等能力需要你提供可用的飞书 MCP Server；地图与天气能力建议后续以 MCP Server 接入。项目不会提交任何真实密钥。
+当前是“可运行的后端 MVP”，不是所有外部服务都开箱即用。真实模型调用需要阿里云百炼 Key，高德实时数据需要 Web 服务 Key；飞书写文档、日历等能力需要可用的飞书 MCP Server。项目不会提交任何真实密钥。
 
 ## 目录职责
 
@@ -74,9 +77,29 @@ Copy-Item .env.example .env
 DATABASE_URL=mysql+pymysql://用户名:密码@127.0.0.1:3306/travelmind?charset=utf8mb4
 ```
 
-## 3. 配置模型与 MCP
+## 3. 配置千问、高德与 MCP
 
-在 `.env` 填写 `MODEL_NAME`、`MODEL_API_KEY`，使用兼容 OpenAI 协议的第三方模型时再填写 `MODEL_BASE_URL`。
+在 `.env` 填写：
+
+```text
+DASHSCOPE_API_KEY=阿里云百炼API Key
+AMAP_API_KEY=高德Web服务Key
+```
+
+| 环境变量 | 国内服务 | 获取位置 | 用途 |
+|---|---|---|---|
+| `DASHSCOPE_API_KEY` | 阿里云百炼 | [百炼控制台](https://bailian.console.aliyun.com/) | 千问对话、工具调用 |
+| `AMAP_API_KEY` | 高德开放平台 | [应用与 Key](https://console.amap.com/dev/key/app) | 地理编码、POI、天气、路线 |
+| `FEISHU_VERIFICATION_TOKEN` | 飞书开放平台 | 飞书应用事件订阅配置 | 验证入站 Webhook |
+| `FEISHU_ENCRYPT_KEY` | 飞书开放平台 | 飞书应用事件订阅配置 | 校验回调签名 |
+| `FEISHU_MCP_URL/TOKEN` | 你选择的飞书 MCP Server | 对应 Server 配置 | 文档、日历、消息写入 |
+
+默认模型与中国北京地域兼容地址已经配置：
+
+```text
+MODEL_NAME=qwen3.5-plus
+MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+```
 
 启用 MCP：
 
@@ -128,7 +151,7 @@ python -m pytest -q
 
 - Checkpoint 目前使用进程内 `InMemorySaver`，服务重启恢复需要下一阶段换成 MySQL Checkpointer。
 - 飞书 Webhook 已能把消息交给 Agent；将结果主动回复飞书，需要启用提供发消息工具的飞书 MCP Server。
-- `tools/amap.py`、`tools/weather.py`、持久 Outbox 和 Scheduler 尚未接真实服务，避免在没有 API/MCP 选择和凭证时伪造“已集成”。
+- 持久 Outbox 和 Scheduler 尚未实现；真实外部写入与定时重规划接通后再添加。
 - 第一版不做自动付款、抢票、非官方个人微信登录、多 Agent、微服务、Redis或向量数据库。
 
 ## 文档导航

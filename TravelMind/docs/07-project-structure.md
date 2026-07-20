@@ -113,7 +113,7 @@ Domain          Infrastructure
 ```text
 MODEL_PROVIDER
 MODEL_NAME
-MODEL_API_KEY
+DASHSCOPE_API_KEY
 DATABASE_URL
 AMAP_API_KEY
 FEISHU_APP_ID
@@ -429,11 +429,11 @@ agent_id
 
 ### `tools/amap.py`
 
-阶段2实现。封装地理编码、POI和路线接口；只返回项目需要的精简字段、来源和查询时间。
+已实现高德 Web 服务的地理编码、POI和步行/驾车/公交路线，只返回项目需要的精简字段、来源和查询时间。没有 `AMAP_API_KEY` 时不会把这些工具注册给Agent。
 
 ### `tools/weather.py`
 
-阶段2实现。封装天气查询并标准化天气现象、温度、降水和预警。
+已实现高德当前天气和未来天气查询，并标准化天气、温度、风力和报告时间。
 
 这些工具最终与MCP工具一起进入Tool Registry。
 

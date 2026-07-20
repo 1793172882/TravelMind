@@ -1,5 +1,7 @@
 """Tests for the real LangChain/LangGraph runtime with a Fake model."""
 
+from datetime import datetime, timedelta
+
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
@@ -28,5 +30,34 @@ def test_default_registry_exposes_read_and_approved_write_tools() -> None:
     tools = {tool.name: tool for tool in build_default_registry().list_tools()}
 
     assert tools["trip.get"].risk_level.value == "read"
+    assert tools["itinerary.validate"].risk_level.value == "read"
     assert tools["trip.create"].risk_level.value == "write"
     assert tools["trip.add_itinerary_item"].risk_level.value == "write"
+
+
+@pytest.mark.anyio
+async def test_itinerary_validation_tool_preserves_nested_models() -> None:
+    start = datetime(2026, 8, 1, 9)
+    result = await build_default_registry().invoke(
+        "itinerary.validate",
+        {
+            "requirement": {
+                "destination": "杭州",
+                "start_at": start,
+                "end_at": start + timedelta(hours=8),
+                "must_visit": ["西湖"],
+            },
+            "itinerary": {
+                "items": [
+                    {
+                        "title": "游览西湖",
+                        "location": "西湖",
+                        "start_at": start,
+                        "end_at": start + timedelta(hours=2),
+                    }
+                ]
+            },
+        },
+    )
+
+    assert result == {"valid": True, "errors": []}

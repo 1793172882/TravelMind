@@ -17,6 +17,15 @@ from app.harness.middleware import ToolExecutor
 from app.harness.permissions import RiskLevel
 from app.harness.tool_registry import ToolDefinition, ToolRegistry
 from app.tools.budget import BudgetArgs, calculate_trip_cost
+from app.tools.itinerary import ValidateItineraryArgs, validate_candidate_itinerary
+from app.tools.amap import (
+    GeocodeArgs,
+    RouteArgs,
+    SearchPOIArgs,
+    geocode,
+    plan_route,
+    search_poi,
+)
 from app.tools.trips import (
     AddItineraryItemArgs,
     CreateTripArgs,
@@ -25,6 +34,7 @@ from app.tools.trips import (
     create_trip_record,
     get_trip_record,
 )
+from app.tools.weather import WeatherArgs, query_weather
 
 
 def build_default_registry() -> ToolRegistry:
@@ -39,6 +49,52 @@ def build_default_registry() -> ToolRegistry:
             risk_level=RiskLevel.READ,
         )
     )
+    registry.register(
+        ToolDefinition(
+            name="itinerary.validate",
+            description="保存前校验候选行程的时间重叠、预算、步行距离和必去地点。",
+            args_model=ValidateItineraryArgs,
+            handler=validate_candidate_itinerary,
+            risk_level=RiskLevel.READ,
+        )
+    )
+    if settings.amap_api_key is not None:
+        registry.register(
+            ToolDefinition(
+                name="amap.geocode",
+                description="使用高德地图把中国地址或地点名称转换为经纬度和行政区编码。",
+                args_model=GeocodeArgs,
+                handler=geocode,
+                risk_level=RiskLevel.READ,
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="amap.search_poi",
+                description="使用高德地图在指定城市搜索真实景点、餐厅、酒店等地点。",
+                args_model=SearchPOIArgs,
+                handler=search_poi,
+                risk_level=RiskLevel.READ,
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="amap.weather",
+                description="使用高德地图按城市名称或 adcode 查询当前天气或未来天气。",
+                args_model=WeatherArgs,
+                handler=query_weather,
+                risk_level=RiskLevel.READ,
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="amap.plan_route",
+                description="使用高德地图规划步行、驾车或公交路线，地点可直接传中文名称。",
+                args_model=RouteArgs,
+                handler=plan_route,
+                risk_level=RiskLevel.READ,
+            )
+        )
     registry.register(
         ToolDefinition(
             name="trip.create",
@@ -163,11 +219,12 @@ def build_agent_runtime(
 ) -> TravelAgentRuntime:
     """Build the real model runtime or accept a Fake model for tests."""
     if model is None:
-        if settings.model_api_key is None:
-            raise RuntimeError("缺少 MODEL_API_KEY，无法启动真实 Agent")
+        api_key = settings.model_api_key or settings.dashscope_api_key
+        if api_key is None:
+            raise RuntimeError("缺少 DASHSCOPE_API_KEY，无法启动千问 Agent")
         model = ChatOpenAI(
             model=settings.model_name,
-            api_key=settings.model_api_key,
+            api_key=api_key,
             base_url=settings.model_base_url,
             temperature=0,
         )

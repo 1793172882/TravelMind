@@ -16,9 +16,12 @@ class Settings(BaseSettings):
     )
 
     database_url: str
-    model_name: str = "gpt-4o-mini"
+    model_name: str = "qwen3.5-plus"
     model_api_key: SecretStr | None = None
-    model_base_url: str | None = None
+    model_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    dashscope_api_key: SecretStr | None = None
+    amap_api_key: SecretStr | None = None
+    amap_timeout_seconds: float = 10
     mcp_config_path: Path = PROJECT_ROOT / "config" / "mcp.json"
     feishu_verification_token: SecretStr | None = None
     feishu_encrypt_key: SecretStr | None = None

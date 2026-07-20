@@ -53,7 +53,11 @@ class ToolRegistry:
         """Validate arguments and execute a synchronous or asynchronous handler."""
         tool = self.get(name)
         validated = tool.args_model.model_validate(arguments)
-        result = tool.handler(**validated.model_dump())
+        values = {
+            field_name: getattr(validated, field_name)
+            for field_name in validated.__class__.model_fields
+        }
+        result = tool.handler(**values)
         if inspect.isawaitable(result):
             return await result
         return result
