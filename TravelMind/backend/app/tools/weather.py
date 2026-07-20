@@ -1,2 +1,1 @@
-"""Weather query and normalization; implemented in stage 2."""
-
+"""Reserved for a future weather adapter; prefer a configured weather MCP Server."""

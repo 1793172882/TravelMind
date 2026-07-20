@@ -1,6 +1,6 @@
 # 项目结构与模块职责
 
-这份文档回答三个问题：代码放在哪里、这个模块负责什么、应该在哪个阶段实现。骨架中的占位模块目前只有职责说明，不代表功能已经完成。
+这份文档回答三个问题：代码放在哪里、这个模块负责什么、应该在哪个阶段实现。实际完成状态以根目录 README 的“当前已实现”和“当前边界”为准。
 
 ## 1. 完整目录树
 
@@ -458,7 +458,7 @@ Agent → MCP Client → 飞书MCP Server
 
 ### `infrastructure/database.py`
 
-阶段4实现。负责PostgreSQL连接、LangGraph Postgres Checkpointer/Store和应用生命周期。
+当前负责SQLAlchemy/MySQL连接和请求级Session；MySQL Checkpointer/Store仍是后续持久化任务。
 
 ### `infrastructure/repositories.py`
 
@@ -476,7 +476,7 @@ Agent → MCP Client → 飞书MCP Server
 
 ### `tests/integration`
 
-测试PostgreSQL Checkpoint、Fake MCP Server、高德录制响应和飞书测试应用。
+测试MySQL Checkpoint、Fake MCP Server、高德录制响应和飞书测试应用。
 
 ### `tests/e2e`
 
@@ -546,4 +546,3 @@ app/agents/protocol.py        Agent间消息结构
 不会复制MCP Manager、Permission Engine、Memory或Task System。子Agent作为工具或Subgraph接入现有LangGraph，并继承父图Checkpoint命名空间。
 
 只有当单Agent出现可测量问题时才创建这些文件。
-

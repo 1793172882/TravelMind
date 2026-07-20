@@ -1,10 +1,16 @@
 {
   "servers": {
-    "demo": {
+    "fake": {
       "enabled": false,
       "transport": "stdio",
       "command": "python",
       "args": ["-m", "tests.fake_mcp_server"]
+    },
+    "feishu": {
+      "enabled": false,
+      "transport": "streamable_http",
+      "url_env": "FEISHU_MCP_URL",
+      "token_env": "FEISHU_MCP_TOKEN"
     }
   }
 }

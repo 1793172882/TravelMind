@@ -1,2 +1,1 @@
-"""Build the outer LangGraph trip lifecycle and compile it with a checkpointer."""
-
+"""Reserved for a persistent outer trip lifecycle after the single Agent MVP."""

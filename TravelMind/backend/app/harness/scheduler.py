@@ -1,2 +1,1 @@
-"""Register durable weather, route, replan, and outbox retry jobs."""
-
+"""Reserved for durable weather checks after a real scheduler is selected."""

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TravelMind</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <p class="eyebrow">HARNESS-DRIVEN TRAVEL AGENT</p>
+        <h1>TravelMind</h1>
+        <p>让 Agent 规划行程，让 Harness 管住工具、审批与执行。</p>
+      </header>
+
+      <section class="panel chat-panel">
+        <div class="panel-title">
+          <h2>对话</h2>
+          <label>Thread ID <input id="thread-id" value="travel-demo-1" /></label>
+        </div>
+        <div id="messages" class="messages" aria-live="polite">
+          <article class="message agent">告诉我出发地、目的地、时间、预算和同行人。</article>
+        </div>
+        <form id="chat-form" class="composer">
+          <textarea
+            id="message"
+            required
+            maxlength="10000"
+            placeholder="例如：周六带父母从上海去杭州一日游，预算 1500 元，尽量少走路。"
+          ></textarea>
+          <button type="submit">发送</button>
+        </form>
+        <div id="approval" class="approval" hidden>
+          <p>Agent 请求执行写操作，是否批准？</p>
+          <pre id="approval-detail"></pre>
+          <div>
+            <button id="approve" type="button">批准</button>
+            <button id="reject" class="secondary" type="button">拒绝</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>MySQL 行程</h2>
+          <button id="refresh-trips" class="secondary" type="button">刷新</button>
+        </div>
+        <div id="trips" class="trip-list">尚未读取。</div>
+      </section>
+    </main>
+    <script src="/ui/app.js" defer></script>
+  </body>
+</html>

@@ -281,7 +281,7 @@ risk_level        ASK
 
 ### 集成测试
 
-- PostgreSQL Checkpointer。
+- MySQL Checkpointer。
 - 高德测试账号或录制响应。
 - 飞书测试应用。
 - Scheduler持久化与Fake Clock。
@@ -365,4 +365,3 @@ estimated_model_cost
 - 有一个自动化检查。
 - 有可观察日志。
 - 相关文档已更新。
-

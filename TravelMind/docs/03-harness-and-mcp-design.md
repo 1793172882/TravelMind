@@ -146,7 +146,7 @@ DENY：拒绝执行并告诉模型原因
 }
 ```
 
-第一版使用PostgreSQL JSONB和明确字段，不使用向量检索。
+第一版使用MySQL JSON字段和明确字段，不使用向量检索。
 
 ## 8. Error Recovery
 
@@ -256,4 +256,3 @@ permission_scope
 ```
 
 未来所有Agent共享MCP Manager，不各自创建重复连接；Tool Registry根据 `agent_id` 过滤工具和权限。
-

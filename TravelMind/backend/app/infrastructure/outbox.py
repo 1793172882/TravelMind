@@ -1,2 +1,1 @@
-"""Deliver idempotent external writes and retry failed notifications."""
-
+"""Reserved for persistent retry after the first real external write integration."""

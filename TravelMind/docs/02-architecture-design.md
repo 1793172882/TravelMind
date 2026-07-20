@@ -19,7 +19,7 @@ flowchart LR
     API --> Agent["TravelMind Agent"]
     Agent --> AMap["高德/天气"]
     Agent --> MCP["MCP Servers"]
-    Agent --> DB["PostgreSQL"]
+    Agent --> DB["MySQL"]
     MCP --> FeishuAPI["飞书文档/日历/多维表格"]
 ```
 
@@ -32,7 +32,7 @@ Agent层      LangChain create_agent、Prompt、Skills
 Harness层    Tools、Permissions、Hooks、Context、Memory、Recovery、MCP
 Runtime层    LangGraph Checkpoint、Interrupt、Store、Streaming
 领域层       行程模型、约束校验、重规划规则
-基础设施层   PostgreSQL、HTTP API、MCP Server、Scheduler
+基础设施层   MySQL、HTTP API、MCP Server、Scheduler
 ```
 
 依赖方向始终由上向下；领域校验不依赖LLM。
@@ -47,7 +47,7 @@ sequenceDiagram
     participant L as LangChain Agent
     participant H as Harness
     participant T as Tool/MCP
-    participant D as PostgreSQL
+    participant D as MySQL
 
     U->>A: 提交出行需求
     A->>G: invoke(thread_id, user_id)
@@ -168,7 +168,7 @@ travelmind-api
 ├── FastAPI
 ├── LangChain/LangGraph
 ├── MCP Manager
-└── APScheduler
+└── Scheduler（后续按真实定时需求选择实现）
 
 postgres
 frontend
@@ -196,4 +196,3 @@ Supervisor
 ```
 
 新增的只是Agent注册、上下文隔离、任务分派和Agent间协议；Harness核心模块保持不变。
-

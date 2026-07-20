@@ -272,7 +272,7 @@ Agent请求创建日历
 
 ### 实现
 
-- APScheduler使用PostgreSQL持久化Job。
+- Scheduler使用MySQL持久化Job；具体调度库在进入本阶段时再选择。
 - 行程前24小时和2小时检查天气。
 - 发现明显变化后创建重规划Task。
 - 生成替代方案后等待用户审批。
@@ -322,4 +322,3 @@ feat(mcp): discover and register server tools
 - 对应文档。
 - 一个可执行演示。
 - 最小自动化测试。
-

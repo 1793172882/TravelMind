@@ -1,2 +1,1 @@
-"""Geocoding, POI, and route calls with normalized outputs; implemented in stage 2."""
-
+"""Reserved for a future official map API adapter; prefer a configured map MCP Server."""
