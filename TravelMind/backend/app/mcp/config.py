@@ -14,6 +14,7 @@ class MCPServerConfig(BaseModel):
     transport: Literal["stdio", "streamable_http"]
     command: str | None = None
     args: list[str] = Field(default_factory=list)
+    env_from: dict[str, str] = Field(default_factory=dict)
     url_env: str | None = None
     token_env: str | None = None
     auth: Literal["bearer", "feishu_tenant"] = "bearer"

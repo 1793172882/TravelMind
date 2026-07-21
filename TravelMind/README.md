@@ -31,7 +31,7 @@ Controller → Service → Repository → SQLAlchemy ORM → MySQL
 - 飞书 Webhook challenge、token/签名校验、文本消息转换和事件去重。
 - 约束复验后一次审批、单事务保存完整行程与全部日程项。
 - 无 Node 依赖的产品级响应式页面，包含总览、聊天、审批和行程管理。
-- Fake MCP Server 与 31 个自动化测试（包含真实 stdio MCP 生命周期）。
+- Fake MCP Server 与 34 个自动化测试（包含真实 stdio MCP 生命周期）。
 
 当前是“可运行的后端 MVP”，不是所有外部服务都开箱即用。真实模型调用需要阿里云百炼 Key，高德实时数据需要 Web 服务 Key；飞书写文档、日历等能力需要可用的飞书 MCP Server。项目不会提交任何真实密钥。
 
@@ -122,6 +122,11 @@ Copy-Item config\mcp.example.json config\mcp.json
 cd backend
 python scripts/check_mcp.py
 ```
+
+需要文档写入、日历和机器人发消息时，启用 `config/mcp.example.json` 中的
+`lark_openapi` stdio Server。它固定使用官方 `@larksuiteoapi/lark-mcp@0.5.1`，
+通过子进程环境变量读取 App 凭证，并只开放 `.env.example` 中列出的七个工具。
+工具名包含 `create` 的操作会自动进入 Harness 审批，不会静默写入飞书。
 
 ## 4. 启动服务
 

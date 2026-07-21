@@ -4,8 +4,11 @@ from unittest.mock import AsyncMock, Mock
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+import pytest
 
 from app.api.dependencies import get_agent_runtime, get_trip_service
+from app.api.routes.webhooks import _run_feishu_agent
+from app.agent.state import AgentContext
 from app.agent.runtime import AgentRunResult, TravelAgentRuntime
 from app.main import app
 from app.config import settings
@@ -132,6 +135,11 @@ def test_lifespan_and_feishu_webhook(monkeypatch, tmp_path) -> None:
     runtime.chat = AsyncMock(
         return_value=AgentRunResult(status="completed", message="规划已生成")
     )
+    runtime.pending_approvals = AsyncMock(return_value=[])
+    manager = SimpleNamespace(
+        tools={"lark_openapi.im_v1_message_create": object()},
+        call_tool=AsyncMock(),
+    )
     payload = {
         "header": {
             "event_id": "event-http-1",
@@ -151,6 +159,7 @@ def test_lifespan_and_feishu_webhook(monkeypatch, tmp_path) -> None:
 
     with TestClient(app) as lifespan_client:
         app.state.agent_runtime = runtime
+        app.state.mcp_manager = manager
         response = lifespan_client.post("/webhooks/feishu", json=payload)
 
     assert response.status_code == 200
@@ -159,4 +168,54 @@ def test_lifespan_and_feishu_webhook(monkeypatch, tmp_path) -> None:
         "thread_id": "feishu:chat-http-1",
     }
     runtime.chat.assert_awaited_once()
+    manager.call_tool.assert_awaited_once_with(
+        "lark_openapi.im_v1_message_create",
+        {
+            "data": {
+                "receive_id": "chat-http-1",
+                "msg_type": "text",
+                "content": '{"text": "规划已生成"}',
+                "uuid": "travelmind-message-http-1",
+            },
+            "params": {"receive_id_type": "chat_id"},
+        },
+    )
     del app.state.agent_runtime
+
+
+@pytest.mark.anyio
+async def test_feishu_message_can_approve_pending_tool() -> None:
+    runtime = Mock(spec=TravelAgentRuntime)
+    runtime.pending_approvals = AsyncMock(return_value=[{"tool": "calendar.create"}])
+    runtime.resume = AsyncMock(
+        return_value=AgentRunResult(status="completed", message="日历已经创建")
+    )
+    manager = SimpleNamespace(
+        tools={"lark_openapi.im_v1_message_create": object()},
+        call_tool=AsyncMock(),
+    )
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(agent_runtime=runtime, mcp_manager=manager)
+        )
+    )
+
+    await _run_feishu_agent(
+        request,
+        "批准",
+        "feishu:user-1",
+        "feishu:chat-1",
+        "chat-1",
+        "message-1",
+    )
+
+    runtime.resume.assert_awaited_once_with(
+        "feishu:chat-1",
+        True,
+        AgentContext(
+            user_id="feishu:user-1",
+            thread_id="feishu:chat-1",
+            channel="feishu",
+        ),
+    )
+    manager.call_tool.assert_awaited_once()

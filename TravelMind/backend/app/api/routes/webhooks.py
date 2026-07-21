@@ -1,6 +1,7 @@
 """Inbound webhook controllers for external messaging channels."""
 
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
@@ -15,15 +16,62 @@ from app.channels.feishu import (
 from app.config import settings
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+logger = logging.getLogger(__name__)
+FEISHU_SEND_MESSAGE_TOOL = "lark_openapi.im_v1_message_create"
 
 
-async def _run_feishu_agent(request: Request, text: str, user_id: str, thread_id: str) -> None:
+async def _run_feishu_agent(
+    request: Request,
+    text: str,
+    user_id: str,
+    thread_id: str,
+    chat_id: str,
+    message_id: str,
+) -> None:
     """Execute the slower Agent turn after the callback has been acknowledged."""
     runtime = resolve_agent_runtime(request)
-    await runtime.chat(
-        text,
-        AgentContext(user_id=user_id, thread_id=thread_id, channel="feishu"),
-    )
+    context = AgentContext(user_id=user_id, thread_id=thread_id, channel="feishu")
+    pending = await runtime.pending_approvals(thread_id)
+    decision = text.strip().lower()
+    if pending and decision in {"批准", "同意", "approve"}:
+        result = await runtime.resume(thread_id, True, context)
+    elif pending and decision in {"拒绝", "不同意", "reject"}:
+        result = await runtime.resume(thread_id, False, context)
+    elif pending:
+        result_message = "当前有待审批操作，请回复“批准”或“拒绝”。"
+        await _send_feishu_reply(request, chat_id, message_id, result_message)
+        return
+    else:
+        result = await runtime.chat(text, context)
+    await _send_feishu_reply(request, chat_id, message_id, result.message)
+
+
+async def _send_feishu_reply(
+    request: Request,
+    chat_id: str,
+    message_id: str,
+    text: str,
+) -> None:
+    """Reply to the user-initiated chat without exposing an Agent write tool."""
+    manager = request.app.state.mcp_manager
+    if FEISHU_SEND_MESSAGE_TOOL not in manager.tools:
+        logger.warning("飞书消息工具未连接，无法回复 chat_id=%s", chat_id)
+        return
+    try:
+        await manager.call_tool(
+            FEISHU_SEND_MESSAGE_TOOL,
+            {
+                "data": {
+                    "receive_id": chat_id,
+                    "msg_type": "text",
+                    "content": json.dumps({"text": text}, ensure_ascii=False),
+                    "uuid": f"travelmind-{message_id}",
+                },
+                "params": {"receive_id_type": "chat_id"},
+            },
+        )
+    except Exception:
+        logger.exception("飞书消息回复失败 chat_id=%s", chat_id)
 
 
 @router.post("/feishu", status_code=status.HTTP_200_OK)
@@ -75,5 +123,7 @@ async def receive_feishu_event(
         message.text,
         message.user_id,
         message.thread_id,
+        message.chat_id,
+        message.message_id,
     )
     return {"status": "accepted", "thread_id": message.thread_id}

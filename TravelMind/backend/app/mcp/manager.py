@@ -53,9 +53,17 @@ class MCPManager:
         stack = AsyncExitStack()
         try:
             if server.transport == "stdio":
+                command = server.command or ""
+                if os.name == "nt" and command in {"npm", "npx"}:
+                    command = f"{command}.cmd"
                 parameters = StdioServerParameters(
-                    command=server.command or "",
+                    command=command,
                     args=server.args,
+                    env={
+                        child_name: self._environment_value(source_name)
+                        for child_name, source_name in server.env_from.items()
+                    }
+                    or None,
                 )
                 read, write = await stack.enter_async_context(stdio_client(parameters))
             else:
@@ -107,6 +115,15 @@ class MCPManager:
         """Resolve known .env settings before falling back to process variables."""
         configured = {
             "FEISHU_MCP_URL": settings.feishu_mcp_url,
+            "FEISHU_APP_ID": settings.feishu_app_id,
+            "FEISHU_APP_SECRET": (
+                settings.feishu_app_secret.get_secret_value()
+                if settings.feishu_app_secret
+                else None
+            ),
+            "FEISHU_LARK_DOMAIN": settings.feishu_lark_domain,
+            "FEISHU_LARK_TOKEN_MODE": settings.feishu_lark_token_mode,
+            "FEISHU_LARK_TOOLS": settings.feishu_lark_tools,
             "FEISHU_MCP_TOKEN": (
                 settings.feishu_mcp_token.get_secret_value()
                 if settings.feishu_mcp_token

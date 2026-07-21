@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     feishu_app_secret: SecretStr | None = None
     feishu_mcp_url: str = "https://mcp.feishu.cn/mcp"
     feishu_mcp_token: SecretStr | None = None
+    feishu_lark_domain: str = "https://open.feishu.cn"
+    feishu_lark_token_mode: str = "tenant_access_token"
+    feishu_lark_tools: str = (
+        "im.v1.message.create,"
+        "docx.v1.document.create,"
+        "docx.v1.document.convert,"
+        "docx.v1.documentBlockDescendant.create,"
+        "docx.v1.document.rawContent,"
+        "calendar.v4.calendar.primary,"
+        "calendar.v4.calendarEvent.create"
+    )
 
     @field_validator("mcp_config_path")
     @classmethod
