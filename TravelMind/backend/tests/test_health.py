@@ -124,9 +124,10 @@ def test_chat_endpoint_uses_agent_runtime() -> None:
     }
 
 
-def test_lifespan_and_feishu_webhook(monkeypatch) -> None:
+def test_lifespan_and_feishu_webhook(monkeypatch, tmp_path) -> None:
     """The real app lifespan initializes channel/MCP state before callbacks."""
     monkeypatch.setattr(settings, "feishu_verification_token", SecretStr("verify-me"))
+    monkeypatch.setattr(settings, "mcp_config_path", tmp_path / "missing-mcp.json")
     runtime = Mock(spec=TravelAgentRuntime)
     runtime.chat = AsyncMock(
         return_value=AgentRunResult(status="completed", message="规划已生成")

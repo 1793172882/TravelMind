@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     mcp_config_path: Path = PROJECT_ROOT / "config" / "mcp.json"
     feishu_verification_token: SecretStr | None = None
     feishu_encrypt_key: SecretStr | None = None
+    feishu_app_id: str | None = None
+    feishu_app_secret: SecretStr | None = None
+    feishu_mcp_url: str = "https://mcp.feishu.cn/mcp"
+    feishu_mcp_token: SecretStr | None = None
 
     @field_validator("mcp_config_path")
     @classmethod

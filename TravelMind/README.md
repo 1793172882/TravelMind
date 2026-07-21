@@ -31,7 +31,7 @@ Controller → Service → Repository → SQLAlchemy ORM → MySQL
 - 飞书 Webhook challenge、token/签名校验、文本消息转换和事件去重。
 - 约束复验后一次审批、单事务保存完整行程与全部日程项。
 - 无 Node 依赖的产品级响应式页面，包含总览、聊天、审批和行程管理。
-- Fake MCP Server 与 30 个自动化测试（包含真实 stdio MCP 生命周期）。
+- Fake MCP Server 与 31 个自动化测试（包含真实 stdio MCP 生命周期）。
 
 当前是“可运行的后端 MVP”，不是所有外部服务都开箱即用。真实模型调用需要阿里云百炼 Key，高德实时数据需要 Web 服务 Key；飞书写文档、日历等能力需要可用的飞书 MCP Server。项目不会提交任何真实密钥。
 
@@ -95,7 +95,8 @@ AMAP_API_KEY=高德Web服务Key
 | `AMAP_API_KEY` | 高德开放平台 | [应用与 Key](https://console.amap.com/dev/key/app) | 地理编码、POI、天气、路线 |
 | `FEISHU_VERIFICATION_TOKEN` | 飞书开放平台 | 飞书应用事件订阅配置 | 验证入站 Webhook |
 | `FEISHU_ENCRYPT_KEY` | 飞书开放平台 | 飞书应用事件订阅配置 | 校验回调签名 |
-| `FEISHU_MCP_URL/TOKEN` | 你选择的飞书 MCP Server | 对应 Server 配置 | 文档、日历、消息写入 |
+| `FEISHU_MCP_URL` | 飞书官方 MCP | `https://mcp.feishu.cn/mcp` | 远程 MCP 文档工具 |
+| `FEISHU_APP_ID/SECRET` | 飞书开放平台 | 自建应用凭证 | 自动获取并刷新官方 MCP 的 tenant token |
 
 默认模型与中国北京地域兼容地址已经配置：
 
@@ -111,6 +112,16 @@ Copy-Item config\mcp.example.json config\mcp.json
 ```
 
 编辑 `config/mcp.json`，把目标 Server 的 `enabled` 改为 `true`。URL 与 Token 只填写在 `.env`，JSON 中只保存环境变量名。
+
+官方飞书远程 MCP 使用固定地址 `https://mcp.feishu.cn/mcp`。配置
+`FEISHU_APP_ID` 和 `FEISHU_APP_SECRET` 后，TravelMind 会自动获取并缓存两小时有效的
+`tenant_access_token`，通过 `X-Lark-MCP-TAT` 认证。`allowed_tools` 是必填白名单；
+当前示例启用官方文档工具 `fetch-doc`。运行以下命令可安全检查连接，不会输出凭证：
+
+```powershell
+cd backend
+python scripts/check_mcp.py
+```
 
 ## 4. 启动服务
 

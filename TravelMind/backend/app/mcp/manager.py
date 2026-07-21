@@ -11,6 +11,8 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
 from app.mcp.config import MCPConfig, MCPServerConfig
+from app.config import settings
+from app.mcp.feishu_auth import FeishuTenantAuth, FeishuTenantTokenProvider
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,12 +59,25 @@ class MCPManager:
                 )
                 read, write = await stack.enter_async_context(stdio_client(parameters))
             else:
-                url = os.environ[server.url_env or ""]
+                url = self._environment_value(server.url_env or "")
                 headers: dict[str, str] = {}
-                if server.token_env:
-                    headers["Authorization"] = f"Bearer {os.environ[server.token_env]}"
+                auth: httpx.Auth | None = None
+                if server.auth == "feishu_tenant":
+                    if settings.feishu_app_id is None or settings.feishu_app_secret is None:
+                        raise RuntimeError("缺少 FEISHU_APP_ID 或 FEISHU_APP_SECRET")
+                    token_client = await stack.enter_async_context(httpx.AsyncClient())
+                    provider = FeishuTenantTokenProvider(
+                        settings.feishu_app_id,
+                        settings.feishu_app_secret.get_secret_value(),
+                        token_client,
+                    )
+                    auth = FeishuTenantAuth(provider, server.allowed_tools)
+                elif server.token_env:
+                    headers["Authorization"] = (
+                        f"Bearer {self._environment_value(server.token_env)}"
+                    )
                 http_client = await stack.enter_async_context(
-                    httpx.AsyncClient(headers=headers, follow_redirects=True)
+                    httpx.AsyncClient(headers=headers, auth=auth, follow_redirects=True)
                 )
                 streams = await stack.enter_async_context(
                     streamable_http_client(url, http_client=http_client)
@@ -86,6 +101,21 @@ class MCPManager:
                 input_schema=tool.inputSchema,
             )
             self.tools[discovered.qualified_name] = discovered
+
+    @staticmethod
+    def _environment_value(name: str) -> str:
+        """Resolve known .env settings before falling back to process variables."""
+        configured = {
+            "FEISHU_MCP_URL": settings.feishu_mcp_url,
+            "FEISHU_MCP_TOKEN": (
+                settings.feishu_mcp_token.get_secret_value()
+                if settings.feishu_mcp_token
+                else None
+            ),
+        }.get(name)
+        if configured:
+            return configured
+        return os.environ[name]
 
     async def call_tool(self, qualified_name: str, arguments: dict[str, Any]) -> Any:
         """Call one discovered tool through its owning session."""

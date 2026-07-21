@@ -16,6 +16,8 @@ class MCPServerConfig(BaseModel):
     args: list[str] = Field(default_factory=list)
     url_env: str | None = None
     token_env: str | None = None
+    auth: Literal["bearer", "feishu_tenant"] = "bearer"
+    allowed_tools: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_transport_fields(self) -> "MCPServerConfig":

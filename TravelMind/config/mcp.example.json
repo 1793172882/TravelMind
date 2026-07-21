@@ -10,7 +10,8 @@
       "enabled": false,
       "transport": "streamable_http",
       "url_env": "FEISHU_MCP_URL",
-      "token_env": "FEISHU_MCP_TOKEN"
+      "auth": "feishu_tenant",
+      "allowed_tools": ["fetch-doc"]
     }
   }
 }

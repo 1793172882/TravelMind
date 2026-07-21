@@ -1,4 +1,5 @@
 .env
+config/mcp.json
 .pytest_cache/
 .ruff_cache/
 __pycache__/
@@ -8,4 +9,3 @@ __pycache__/
 dist/
 build/
 node_modules/
-
