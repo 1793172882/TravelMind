@@ -135,6 +135,60 @@ async def test_amap_tools_normalize_real_api_shapes() -> None:
     assert route["segments"][0]["bus_lines"][0]["name"] == "地铁1号线"
 
 
+@pytest.mark.anyio
+async def test_cross_city_route_retries_destination_without_origin_city() -> None:
+    geocode_calls: list[tuple[str, str | None]] = []
+
+    def response(request: httpx.Request) -> httpx.Response:
+        params = parse_qs(request.url.query.decode())
+        if request.url.path == "/v3/geocode/geo":
+            address = params["address"][0]
+            city = params.get("city", [None])[0]
+            geocode_calls.append((address, city))
+            if address == "杭州" and city == "上海":
+                return httpx.Response(
+                    200,
+                    json={
+                        "status": "0",
+                        "info": "ENGINE_RESPONSE_DATA_ERROR",
+                        "infocode": "30001",
+                    },
+                )
+            is_hangzhou = address == "杭州"
+            return httpx.Response(
+                200,
+                json={
+                    "status": "1",
+                    "geocodes": [
+                        {
+                            "formatted_address": address,
+                            "location": "120.15,30.25" if is_hangzhou else "121.47,31.23",
+                            "city": "杭州市" if is_hangzhou else "上海市",
+                            "citycode": "0571" if is_hangzhou else "021",
+                        }
+                    ],
+                },
+            )
+        return _response(request)
+
+    async with httpx.AsyncClient(
+        base_url="https://restapi.amap.com",
+        transport=httpx.MockTransport(response),
+    ) as client:
+        route = await plan_route(
+            "上海",
+            "杭州",
+            "上海",
+            "transit",
+            client=client,
+            api_key="test-key",
+        )
+
+    assert geocode_calls == [("上海", "上海"), ("杭州", "上海"), ("杭州", None)]
+    assert route["destination"]["city"] == "杭州市"
+    assert route["duration_minutes"] == 60
+
+
 def test_amap_tools_are_registered_only_when_key_exists(monkeypatch) -> None:
     monkeypatch.setattr(settings, "amap_api_key", None)
     without_key = {tool.name for tool in build_default_registry().list_tools()}

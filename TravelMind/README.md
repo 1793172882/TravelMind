@@ -20,7 +20,7 @@ Controller → Service → Repository → SQLAlchemy ORM → MySQL
 ## 当前已实现
 
 - MySQL 行程与日程项 CRUD，严格遵循 Controller → Service → Repository 分层。
-- LangChain `create_agent` 单 Agent 与 LangGraph Checkpoint。
+- LangChain `create_agent` 单 Agent 与可跨重启恢复的 MySQL LangGraph Checkpoint。
 - 阿里云百炼千问 `qwen3.5-plus` 默认模型（OpenAI 兼容协议）。
 - 高德真实地理编码、POI、天气、步行/驾车/公交路线工具。
 - 基于 `thread_id` 的多轮对话、工具调用、人工审批、暂停与恢复。
@@ -29,8 +29,9 @@ Controller → Service → Repository → SQLAlchemy ORM → MySQL
 - 内置 MCP Manager，支持 stdio 和 Streamable HTTP；每个 Server 独立 Session 和故障隔离。
 - MCP 工具动态发现并进入统一 Harness 权限管线。
 - 飞书 Webhook challenge、token/签名校验、文本消息转换和事件去重。
-- 无 Node 依赖的最小聊天/审批/行程演示页面。
-- Fake MCP Server 与 27 个自动化测试（包含真实 stdio MCP 生命周期）。
+- 约束复验后一次审批、单事务保存完整行程与全部日程项。
+- 无 Node 依赖的产品级响应式页面，包含总览、聊天、审批和行程管理。
+- Fake MCP Server 与 30 个自动化测试（包含真实 stdio MCP 生命周期）。
 
 当前是“可运行的后端 MVP”，不是所有外部服务都开箱即用。真实模型调用需要阿里云百炼 Key，高德实时数据需要 Web 服务 Key；飞书写文档、日历等能力需要可用的飞书 MCP Server。项目不会提交任何真实密钥。
 
@@ -61,6 +62,8 @@ conda activate travelmind
 cd "C:\Users\he\Documents\learn harness\TravelMind\backend"
 python -m pip install -e ".[dev]"
 ```
+
+首次启动会自动创建 LangGraph Checkpoint 表；项目兼容当前 MySQL 8.0.12。
 
 ## 2. 配置 MySQL
 
@@ -149,8 +152,8 @@ python -m pytest -q
 
 ## 当前边界
 
-- Checkpoint 目前使用进程内 `InMemorySaver`，服务重启恢复需要下一阶段换成 MySQL Checkpointer。
 - 飞书 Webhook 已能把消息交给 Agent；将结果主动回复飞书，需要启用提供发消息工具的飞书 MCP Server。
+- Memory、Task 和 Skill Loader 已有最小实现，目前尚未接入持久化 Agent 工作流。
 - 持久 Outbox 和 Scheduler 尚未实现；真实外部写入与定时重规划接通后再添加。
 - 第一版不做自动付款、抢票、非官方个人微信登录、多 Agent、微服务、Redis或向量数据库。
 

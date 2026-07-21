@@ -7,6 +7,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.infrastructure.database import SessionLocal
+from app.domain.constraints import validate_itinerary
+from app.domain.models import Itinerary, TripRequirement
 from app.services.trip import TripService
 
 
@@ -37,6 +39,14 @@ class AddItineraryItemArgs(TripIdArgs):
     end_at: datetime | None = None
     estimated_cost: Decimal = Field(default=Decimal("0"), ge=0)
     source: str | None = Field(default=None, max_length=100)
+
+
+class SaveItineraryArgs(BaseModel):
+    """A complete candidate plan saved only after deterministic validation."""
+
+    origin: str = Field(min_length=1, max_length=100)
+    requirement: TripRequirement
+    itinerary: Itinerary
 
 
 def _trip_result(trip: Any) -> dict[str, Any]:
@@ -102,3 +112,44 @@ def add_itinerary_item_record(**arguments: Any) -> dict[str, Any]:
             "estimated_cost": str(item.estimated_cost),
             "source": item.source,
         }
+
+
+def save_itinerary_record(
+    origin: str,
+    requirement: TripRequirement,
+    itinerary: Itinerary,
+) -> dict[str, Any]:
+    """Validate and persist one complete itinerary in a single transaction."""
+    errors = validate_itinerary(requirement, itinerary)
+    if errors:
+        return {"status": "invalid", "errors": errors}
+
+    order_by_day: dict[int, int] = {}
+    item_rows: list[dict[str, Any]] = []
+    for item in sorted(itinerary.items, key=lambda value: value.start_at):
+        day_number = (item.start_at.date() - requirement.start_at.date()).days + 1
+        sort_order = order_by_day.get(day_number, 0)
+        order_by_day[day_number] = sort_order + 1
+        item_rows.append(
+            {
+                "day_number": day_number,
+                "sort_order": sort_order,
+                "title": item.title,
+                "location": item.location,
+                "start_at": item.start_at,
+                "end_at": item.end_at,
+                "estimated_cost": item.estimated_cost,
+                "source": item.source,
+            }
+        )
+
+    with SessionLocal() as session:
+        trip, stored_items = TripService(session).create_trip_with_items(
+            origin=origin,
+            destination=requirement.destination,
+            start_at=requirement.start_at,
+            end_at=requirement.end_at,
+            budget=requirement.budget,
+            items=item_rows,
+        )
+        return {"status": "saved", "trip_id": trip.id, "item_count": len(stored_items)}

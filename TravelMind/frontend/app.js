@@ -1,89 +1,684 @@
-const messages = document.querySelector("#messages");
-const chatForm = document.querySelector("#chat-form");
-const messageInput = document.querySelector("#message");
-const threadInput = document.querySelector("#thread-id");
-const approval = document.querySelector("#approval");
-const approvalDetail = document.querySelector("#approval-detail");
-const trips = document.querySelector("#trips");
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-function addMessage(text, role = "agent") {
-  const item = document.createElement("article");
-  item.className = `message ${role}`;
-  item.textContent = text;
-  messages.append(item);
-  messages.scrollTop = messages.scrollHeight;
+const elements = {
+  sidebar: $(".sidebar"),
+  overlay: $("#overlay"),
+  pageTitle: $("#page-title"),
+  pageKicker: $("#page-kicker"),
+  messages: $("#messages"),
+  chatForm: $("#chat-form"),
+  messageInput: $("#message"),
+  sendButton: $("#send-button"),
+  threadInput: $("#thread-id"),
+  approval: $("#approval"),
+  approvalDetail: $("#approval-detail"),
+  runStatus: $("#run-status"),
+  trips: $("#trips"),
+  recentTrips: $("#recent-trips"),
+  createDialog: $("#create-trip-dialog"),
+  createForm: $("#create-trip-form"),
+  drawer: $("#trip-drawer"),
+  drawerContent: $("#drawer-content"),
+  toastRegion: $("#toast-region"),
+};
+
+const pageMeta = {
+  dashboard: ["旅行控制台", greeting()],
+  assistant: ["AI TRAVEL CONCIERGE", "和 TravelMind 一起规划"],
+  trips: ["JOURNEY COLLECTION", "我的全部行程"],
+};
+
+const state = {
+  view: "dashboard",
+  trips: [],
+  currentTrip: null,
+  items: [],
+  pendingApprovals: [],
+  chatBusy: false,
+  threadId: localStorage.getItem("travelmind.thread") || createThreadId(),
+  history: [],
+};
+
+function greeting() {
+  const hour = new Date().getHours();
+  return `${hour < 11 ? "早上好" : hour < 14 ? "中午好" : hour < 18 ? "下午好" : "晚上好"}，准备好出发了吗？`;
+}
+
+function createThreadId() {
+  return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function node(tag, className, text) {
+  const item = document.createElement(tag);
+  if (className) item.className = className;
+  if (text !== undefined) item.textContent = String(text);
+  return item;
+}
+
+function formatDate(value, withTime = false) {
+  if (!value) return "待确定";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "待确定";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "short",
+    day: "numeric",
+    ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+  }).format(date);
+}
+
+function formatMoney(value) {
+  if (value === null || value === undefined || value === "") return "待确定";
+  return `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
+}
+
+function statusText(status) {
+  return ({ draft: "规划中", archived: "已归档", active: "进行中", completed: "已完成" })[status] || status || "未知";
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+  let response;
+  try {
+    response = await fetch(path, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      ...options,
+    });
+  } catch {
+    throw new Error("无法连接 TravelMind 服务，请确认后端已经启动");
+  }
+  const raw = await response.text();
+  let data = null;
+  if (raw) {
+    try { data = JSON.parse(raw); } catch { data = raw; }
+  }
+  if (!response.ok) {
+    const detail = data && typeof data === "object" ? data.detail : data;
+    const message = Array.isArray(detail)
+      ? detail.map((item) => item.msg || "参数不正确").join("；")
+      : detail || `请求失败（HTTP ${response.status}）`;
+    throw new Error(String(message));
+  }
   return data;
 }
 
-function showAgentResult(result) {
-  addMessage(result.message);
-  const pending = result.pending_approvals || [];
-  approval.hidden = pending.length === 0;
-  approvalDetail.textContent = pending.length ? JSON.stringify(pending, null, 2) : "";
+function toast(title, message = "", type = "success") {
+  const item = node("div", `toast${type === "error" ? " is-error" : ""}`);
+  item.append(node("i", "", type === "error" ? "!" : "✓"));
+  const copy = node("div");
+  copy.append(node("strong", "", title));
+  if (message) copy.append(node("span", "", message));
+  item.append(copy);
+  elements.toastRegion.append(item);
+  setTimeout(() => item.remove(), 4200);
 }
 
-chatForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const text = messageInput.value.trim();
-  if (!text) return;
-  addMessage(text, "user");
-  messageInput.value = "";
-  const button = chatForm.querySelector("button");
-  button.disabled = true;
-  try {
-    showAgentResult(await request("/chat", {
-      method: "POST",
-      body: JSON.stringify({ message: text, thread_id: threadInput.value, channel: "web" }),
-    }));
-  } catch (error) {
-    addMessage(error.message, "error");
-  } finally {
+function setButtonBusy(button, busy, busyText = "处理中…") {
+  if (!button) return;
+  if (busy) {
+    button.dataset.label = button.textContent;
+    button.disabled = true;
+    button.textContent = busyText;
+  } else {
     button.disabled = false;
+    if (button.dataset.label) button.textContent = button.dataset.label;
   }
-});
+}
 
-async function decide(decision) {
+function navigate(view, updateHash = true) {
+  if (!pageMeta[view]) view = "dashboard";
+  state.view = view;
+  $$(".view").forEach((item) => {
+    const active = item.id === `view-${view}`;
+    item.hidden = !active;
+    item.classList.toggle("is-active", active);
+  });
+  $$('[data-nav]').forEach((item) => {
+    const active = item.dataset.nav === view;
+    item.classList.toggle("is-active", active);
+    if (item.classList.contains("nav-item")) {
+      active ? item.setAttribute("aria-current", "page") : item.removeAttribute("aria-current");
+    }
+  });
+  elements.pageKicker.textContent = pageMeta[view][0];
+  elements.pageTitle.textContent = pageMeta[view][1];
+  if (updateHash) history.replaceState(null, "", `#${view}`);
+  closeMobileMenu();
+  if (view === "trips") renderTrips();
+  if (view === "assistant") setTimeout(() => elements.messageInput.focus(), 100);
+}
+
+function openMobileMenu() {
+  elements.sidebar.classList.add("is-open");
+  elements.overlay.hidden = false;
+  $("#menu-button").setAttribute("aria-expanded", "true");
+}
+
+function closeMobileMenu() {
+  elements.sidebar.classList.remove("is-open");
+  if (!elements.drawer.classList.contains("is-open")) elements.overlay.hidden = true;
+  $("#menu-button").setAttribute("aria-expanded", "false");
+}
+
+async function loadHealth() {
+  const dot = $("#service-dot");
+  const label = $("#service-label");
   try {
-    showAgentResult(await request(`/approvals/${encodeURIComponent(threadInput.value)}`, {
+    await request("/health");
+    dot.className = "status-dot";
+    label.textContent = "服务运行正常";
+    $("#capability-status").textContent = "已连接";
+  } catch {
+    dot.className = "status-dot is-error";
+    label.textContent = "服务连接失败";
+    $("#capability-status").className = "pill pill-warning";
+    $("#capability-status").textContent = "离线";
+  }
+}
+
+async function loadTrips({ quiet = false } = {}) {
+  if (!quiet) elements.trips.replaceChildren(createSkeleton(), createSkeleton(), createSkeleton());
+  try {
+    state.trips = await request("/trips");
+    renderStats();
+    renderRecentTrips();
+    renderTrips();
+  } catch (error) {
+    state.trips = [];
+    renderStats(true);
+    renderRecentError(error.message);
+    renderTripsError(error.message);
+    if (!quiet) toast("行程读取失败", error.message, "error");
+  }
+}
+
+function createSkeleton() {
+  return node("div", "skeleton-row");
+}
+
+function renderStats(failed = false) {
+  const total = failed ? "—" : state.trips.length;
+  const drafts = failed ? "—" : state.trips.filter((trip) => trip.status === "draft").length;
+  const archived = failed ? "—" : state.trips.filter((trip) => trip.status === "archived").length;
+  $("#stat-total").textContent = total;
+  $("#stat-draft").textContent = drafts;
+  $("#stat-archived").textContent = archived;
+}
+
+function renderRecentTrips() {
+  elements.recentTrips.replaceChildren();
+  const rows = state.trips.slice(0, 4);
+  if (!rows.length) {
+    const empty = node("div", "timeline-empty", "还没有行程，创建第一段旅程吧。");
+    elements.recentTrips.append(empty);
+    return;
+  }
+  rows.forEach((trip) => {
+    const item = node("button", "recent-trip");
+    item.type = "button";
+    item.dataset.tripId = trip.id;
+    item.append(node("span", "trip-symbol", "⌖"));
+    const copy = node("span");
+    copy.append(node("strong", "", `${trip.origin} → ${trip.destination}`));
+    copy.append(node("small", "", `${statusText(trip.status)} · ${formatMoney(trip.budget)}`));
+    item.append(copy, node("time", "", formatDate(trip.start_at || trip.created_at)), node("b", "", "›"));
+    elements.recentTrips.append(item);
+  });
+}
+
+function renderRecentError(message) {
+  elements.recentTrips.replaceChildren(node("div", "timeline-empty", message));
+}
+
+function filteredTrips() {
+  const query = ($("#trip-search").value || "").trim().toLowerCase();
+  const status = $("#trip-status-filter").value;
+  return state.trips.filter((trip) => {
+    const matchesQuery = !query || `${trip.origin} ${trip.destination}`.toLowerCase().includes(query);
+    return matchesQuery && (status === "all" || trip.status === status);
+  });
+}
+
+function renderTrips() {
+  if (!elements.trips) return;
+  const rows = filteredTrips();
+  $("#trip-count").textContent = `${rows.length} 个行程`;
+  elements.trips.replaceChildren();
+  if (!rows.length) {
+    const empty = $("#empty-template").content.cloneNode(true);
+    if (state.trips.length) {
+      $("h3", empty).textContent = "没有匹配的行程";
+      $("p", empty).textContent = "试试更换关键词或状态筛选。";
+      $("button", empty).remove();
+    }
+    elements.trips.append(empty);
+    return;
+  }
+  rows.forEach((trip) => elements.trips.append(createTripCard(trip)));
+}
+
+function renderTripsError(message) {
+  elements.trips.replaceChildren();
+  const empty = node("div", "empty-state");
+  empty.append(node("span", "", "!"), node("h3", "", "无法读取行程"), node("p", "", message));
+  const retry = node("button", "button button-primary", "重新加载");
+  retry.type = "button";
+  retry.addEventListener("click", () => loadTrips());
+  empty.append(retry);
+  elements.trips.append(empty);
+}
+
+function createTripCard(trip) {
+  const card = node("article", "trip-card");
+  const cover = node("div", "trip-card-cover");
+  cover.append(node("span", "pill", statusText(trip.status)));
+  const route = node("div", "trip-card-route");
+  route.append(node("span", "", trip.origin), node("i"), node("span", "", trip.destination));
+  cover.append(route);
+  const body = node("div", "trip-card-body");
+  const meta = node("div", "trip-meta");
+  const date = node("span");
+  date.append("◷ 出发时间：", node("b", "", formatDate(trip.start_at)));
+  const budget = node("span");
+  budget.append("◇ 行程预算：", node("b", "", formatMoney(trip.budget)));
+  meta.append(date, budget);
+  const actions = node("div", "trip-card-actions");
+  actions.append(node("small", "", `创建于 ${formatDate(trip.created_at)}`));
+  const button = node("button", "", "查看详情 →");
+  button.type = "button";
+  button.dataset.tripId = trip.id;
+  actions.append(button);
+  body.append(meta, actions);
+  card.append(cover, body);
+  return card;
+}
+
+function openCreateDialog() {
+  elements.createForm.reset();
+  elements.createDialog.showModal();
+  setTimeout(() => elements.createForm.elements.origin.focus(), 50);
+}
+
+function closeCreateDialog() {
+  elements.createDialog.close();
+}
+
+async function createTrip(event) {
+  event.preventDefault();
+  const data = new FormData(elements.createForm);
+  const payload = {
+    origin: data.get("origin").trim(),
+    destination: data.get("destination").trim(),
+  };
+  for (const key of ["start_at", "end_at"]) if (data.get(key)) payload[key] = data.get(key);
+  if (data.get("budget")) payload.budget = Number(data.get("budget"));
+  const submit = $("#create-trip-submit");
+  setButtonBusy(submit, true, "正在创建…");
+  try {
+    const trip = await request("/trips", { method: "POST", body: JSON.stringify(payload) });
+    closeCreateDialog();
+    toast("行程创建成功", `${trip.origin} → ${trip.destination}`);
+    await loadTrips({ quiet: true });
+    navigate("trips");
+    openTripDrawer(trip.id);
+  } catch (error) {
+    toast("创建失败", error.message, "error");
+  } finally {
+    setButtonBusy(submit, false);
+  }
+}
+
+async function openTripDrawer(tripId) {
+  elements.drawer.classList.add("is-open");
+  elements.drawer.setAttribute("aria-hidden", "false");
+  elements.overlay.hidden = false;
+  elements.drawerContent.replaceChildren(createSkeleton(), createSkeleton(), createSkeleton());
+  try {
+    const [trip, items] = await Promise.all([request(`/trips/${tripId}`), request(`/trips/${tripId}/items`)]);
+    state.currentTrip = trip;
+    state.items = items;
+    renderTripDetail();
+  } catch (error) {
+    elements.drawerContent.replaceChildren(node("div", "timeline-empty", error.message));
+    toast("详情读取失败", error.message, "error");
+  }
+}
+
+function closeTripDrawer() {
+  elements.drawer.classList.remove("is-open");
+  elements.drawer.setAttribute("aria-hidden", "true");
+  elements.overlay.hidden = true;
+  state.currentTrip = null;
+  state.items = [];
+}
+
+function renderTripDetail() {
+  const trip = state.currentTrip;
+  if (!trip) return;
+  $("#drawer-title").textContent = `${trip.origin}到${trip.destination}`;
+  elements.drawerContent.replaceChildren();
+  const hero = node("section", "detail-hero");
+  hero.append(node("span", "pill", statusText(trip.status)), node("h3", "", `${trip.origin} → ${trip.destination}`), node("p", "", `行程编号 #${trip.id} · 创建于 ${formatDate(trip.created_at, true)}`));
+  const stats = node("section", "detail-stats");
+  [["出发", formatDate(trip.start_at)], ["返程", formatDate(trip.end_at)], ["预算", formatMoney(trip.budget)]].forEach(([label, value]) => {
+    const item = node("div"); item.append(node("small", "", label), node("strong", "", value)); stats.append(item);
+  });
+  const heading = node("div", "detail-section-heading");
+  heading.append(node("h3", "", "行程日程"));
+  const addToggle = node("button", "text-button", "＋ 添加日程");
+  addToggle.type = "button";
+  heading.append(addToggle);
+  const timeline = node("div", "timeline");
+  if (!state.items.length) {
+    timeline.append(node("div", "timeline-empty", "还没有详细日程，添加第一项安排吧。"));
+  } else {
+    state.items.forEach((item) => timeline.append(createTimelineItem(item)));
+  }
+  const form = createItemForm(trip.id);
+  addToggle.addEventListener("click", () => {
+    form.hidden = !form.hidden;
+    addToggle.textContent = form.hidden ? "＋ 添加日程" : "收起表单";
+    if (!form.hidden) $("input[name=title]", form).focus();
+  });
+  const actions = node("div", "drawer-actions");
+  if (trip.status !== "archived") {
+    const archive = node("button", "button button-danger", "归档此行程");
+    archive.type = "button";
+    archive.addEventListener("click", () => archiveTrip(archive));
+    actions.append(archive);
+  } else {
+    actions.append(node("span", "pill", "此行程已归档"));
+  }
+  elements.drawerContent.append(hero, stats, heading, timeline, form, actions);
+}
+
+function createTimelineItem(item) {
+  const row = node("article", "timeline-item");
+  row.append(node("span", "timeline-day", `D${item.day_number}`));
+  const card = node("div", "timeline-card");
+  card.append(node("strong", "", item.title), node("p", "", `⌖ ${item.location}`));
+  const details = [item.start_at ? formatDate(item.start_at, true) : null, formatMoney(item.estimated_cost), item.source].filter(Boolean).join(" · ");
+  card.append(node("small", "", details));
+  row.append(card);
+  return row;
+}
+
+function createItemForm(tripId) {
+  const form = node("form", "add-item-form");
+  form.hidden = true;
+  const fields = [
+    ["title", "日程标题 *", "text", "例如：游览西湖", true],
+    ["location", "地点 *", "text", "例如：西湖风景区", true],
+    ["day_number", "第几天 *", "number", "1", true],
+    ["estimated_cost", "预计花费（元）", "number", "0", false],
+    ["start_at", "开始时间", "datetime-local", "", false],
+    ["end_at", "结束时间", "datetime-local", "", false],
+    ["source", "信息来源", "text", "例如：手动添加", false],
+  ];
+  fields.forEach(([name, label, type, placeholder, required]) => {
+    const wrap = node("label", name === "source" ? "full" : "");
+    wrap.append(node("span", "", label));
+    const input = node("input");
+    input.name = name; input.type = type; input.placeholder = placeholder; input.required = required;
+    if (name === "day_number") { input.min = "1"; input.value = "1"; }
+    if (name === "estimated_cost") { input.min = "0"; input.step = "0.01"; input.value = "0"; }
+    wrap.append(input); form.append(wrap);
+  });
+  const submit = node("button", "button button-primary full", "保存日程");
+  submit.type = "submit";
+  form.append(submit);
+  form.addEventListener("submit", (event) => addItineraryItem(event, tripId, submit));
+  return form;
+}
+
+async function addItineraryItem(event, tripId, button) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const payload = {
+    title: data.get("title").trim(),
+    location: data.get("location").trim(),
+    day_number: Number(data.get("day_number")),
+    sort_order: state.items.length,
+    estimated_cost: Number(data.get("estimated_cost") || 0),
+  };
+  for (const key of ["start_at", "end_at", "source"]) if (data.get(key)) payload[key] = data.get(key);
+  setButtonBusy(button, true, "正在保存…");
+  try {
+    await request(`/trips/${tripId}/items`, { method: "POST", body: JSON.stringify(payload) });
+    state.items = await request(`/trips/${tripId}/items`);
+    renderTripDetail();
+    toast("日程已添加", payload.title);
+  } catch (error) {
+    toast("日程添加失败", error.message, "error");
+    setButtonBusy(button, false);
+  }
+}
+
+async function archiveTrip(button) {
+  if (!state.currentTrip || !window.confirm("归档后该行程会保留，但标记为已结束。确定归档吗？")) return;
+  setButtonBusy(button, true, "正在归档…");
+  try {
+    state.currentTrip = await request(`/trips/${state.currentTrip.id}/archive`, { method: "POST" });
+    await loadTrips({ quiet: true });
+    renderTripDetail();
+    toast("行程已归档");
+  } catch (error) {
+    toast("归档失败", error.message, "error");
+    setButtonBusy(button, false);
+  }
+}
+
+function historyKey() {
+  return `travelmind.chat.${state.threadId}`;
+}
+
+function loadHistory() {
+  try { state.history = JSON.parse(localStorage.getItem(historyKey())) || []; }
+  catch { state.history = []; }
+  if (!state.history.length) {
+    state.history = [{ role: "agent", text: "你好，我是 TravelMind。告诉我你想去哪里、什么时候出发，以及预算和同行人，我会帮你把想法变成可执行的旅程。", time: Date.now() }];
+  }
+  renderMessages();
+}
+
+function saveHistory() {
+  localStorage.setItem(historyKey(), JSON.stringify(state.history.slice(-60)));
+}
+
+function appendMessage(text, role = "agent", persist = true) {
+  const message = { role, text: String(text), time: Date.now() };
+  state.history.push(message);
+  if (persist) saveHistory();
+  elements.messages.append(createMessage(message));
+  elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+function createMessage(message) {
+  const row = node("article", `message-row ${message.role}`);
+  if (message.role !== "user") row.append(node("span", "message-avatar", "TM"));
+  const bubble = node("div", "message-bubble");
+  const meta = node("div", "message-meta");
+  meta.append(node("strong", "", message.role === "user" ? "你" : "TravelMind"), node("time", "", new Date(message.time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })));
+  bubble.append(meta, node("div", "message-text", message.text));
+  row.append(bubble);
+  return row;
+}
+
+function renderMessages() {
+  elements.messages.replaceChildren(...state.history.map(createMessage));
+  elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+function showTyping() {
+  const row = node("article", "message-row agent is-typing");
+  row.id = "typing-message";
+  row.append(node("span", "message-avatar", "TM"));
+  const dots = node("div", "message-text");
+  dots.append(node("i"), node("i"), node("i"));
+  row.append(dots);
+  elements.messages.append(row);
+  elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+function setRunState(mode) {
+  const steps = $$(".run-steps li");
+  steps.forEach((step) => step.className = "");
+  elements.runStatus.className = "pill";
+  if (mode === "running") {
+    elements.runStatus.textContent = "运行中";
+    elements.runStatus.classList.add("pill-warning");
+    steps[0].className = "is-ready"; steps[1].className = "is-active";
+  } else if (mode === "approval") {
+    elements.runStatus.textContent = "等待批准";
+    elements.runStatus.classList.add("pill-warning");
+    steps[0].className = "is-ready"; steps[1].className = "is-active";
+  } else if (mode === "done") {
+    elements.runStatus.textContent = "已完成";
+    elements.runStatus.classList.add("pill-success");
+    steps.forEach((step) => step.className = "is-ready");
+  } else {
+    elements.runStatus.textContent = "待命";
+    steps[0].className = "is-ready";
+  }
+}
+
+function displayAgentResult(result) {
+  appendMessage(result.message || "任务已完成。", "agent");
+  state.pendingApprovals = result.pending_approvals || [];
+  renderApprovals();
+  setRunState(state.pendingApprovals.length ? "approval" : "done");
+}
+
+function renderApprovals() {
+  const hasPending = state.pendingApprovals.length > 0;
+  elements.approval.hidden = !hasPending;
+  $("#nav-approval-badge").hidden = !hasPending;
+  elements.approvalDetail.replaceChildren();
+  state.pendingApprovals.forEach((approval) => {
+    elements.approvalDetail.append(node("div", "approval-item", typeof approval === "string" ? approval : JSON.stringify(approval, null, 2)));
+  });
+}
+
+async function sendChat(event) {
+  event.preventDefault();
+  if (state.chatBusy) return;
+  const text = elements.messageInput.value.trim();
+  if (!text) return;
+  appendMessage(text, "user");
+  elements.messageInput.value = "";
+  elements.messageInput.style.height = "auto";
+  state.chatBusy = true;
+  elements.sendButton.disabled = true;
+  setRunState("running");
+  showTyping();
+  try {
+    const result = await request("/chat", {
+      method: "POST",
+      body: JSON.stringify({ message: text, thread_id: state.threadId, channel: "web" }),
+    });
+    $("#typing-message")?.remove();
+    displayAgentResult(result);
+    if (!state.pendingApprovals.length) await loadTrips({ quiet: true });
+  } catch (error) {
+    $("#typing-message")?.remove();
+    appendMessage(error.message, "error");
+    setRunState("idle");
+  } finally {
+    state.chatBusy = false;
+    elements.sendButton.disabled = false;
+    elements.messageInput.focus();
+  }
+}
+
+async function loadApprovals() {
+  try {
+    const result = await request(`/approvals/${encodeURIComponent(state.threadId)}`);
+    state.pendingApprovals = result.pending || [];
+    renderApprovals();
+    if (state.pendingApprovals.length) setRunState("approval");
+  } catch {
+    state.pendingApprovals = [];
+    renderApprovals();
+  }
+}
+
+async function decideApproval(decision) {
+  const approve = $("#approve");
+  const reject = $("#reject");
+  approve.disabled = true; reject.disabled = true;
+  setRunState("running");
+  try {
+    const result = await request(`/approvals/${encodeURIComponent(state.threadId)}`, {
       method: "POST",
       body: JSON.stringify({ decision, channel: "web" }),
-    }));
-    await loadTrips();
+    });
+    displayAgentResult(result);
+    await loadTrips({ quiet: true });
+    toast(decision === "approve" ? "操作已批准" : "操作已拒绝");
   } catch (error) {
-    addMessage(error.message, "error");
+    appendMessage(error.message, "error");
+    toast("审批失败", error.message, "error");
+  } finally {
+    approve.disabled = false; reject.disabled = false;
   }
 }
 
-document.querySelector("#approve").addEventListener("click", () => decide("approve"));
-document.querySelector("#reject").addEventListener("click", () => decide("reject"));
-
-async function loadTrips() {
-  trips.textContent = "正在读取…";
-  try {
-    const rows = await request("/trips");
-    trips.replaceChildren();
-    if (!rows.length) {
-      trips.textContent = "MySQL 中还没有行程。";
-      return;
-    }
-    for (const row of rows) {
-      const item = document.createElement("article");
-      item.className = "trip";
-      item.textContent = `#${row.id}  ${row.origin} → ${row.destination} · ${row.status}`;
-      trips.append(item);
-    }
-  } catch (error) {
-    trips.textContent = error.message;
-  }
+function changeThread(threadId) {
+  state.threadId = threadId.trim() || createThreadId();
+  elements.threadInput.value = state.threadId;
+  localStorage.setItem("travelmind.thread", state.threadId);
+  loadHistory();
+  loadApprovals();
+  setRunState("idle");
 }
 
-document.querySelector("#refresh-trips").addEventListener("click", loadTrips);
+function bindEvents() {
+  document.addEventListener("click", (event) => {
+    const nav = event.target.closest("[data-nav]");
+    if (nav) navigate(nav.dataset.nav);
+    if (event.target.closest("[data-open-create]")) openCreateDialog();
+    const tripButton = event.target.closest("[data-trip-id]");
+    if (tripButton) openTripDrawer(tripButton.dataset.tripId);
+  });
+  $("#menu-button").addEventListener("click", openMobileMenu);
+  elements.overlay.addEventListener("click", () => { closeMobileMenu(); closeTripDrawer(); });
+  $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeCreateDialog));
+  $("#close-drawer").addEventListener("click", closeTripDrawer);
+  elements.createForm.addEventListener("submit", createTrip);
+  $("#refresh-trips").addEventListener("click", () => loadTrips());
+  $("#trip-search").addEventListener("input", renderTrips);
+  $("#trip-status-filter").addEventListener("change", renderTrips);
+  elements.chatForm.addEventListener("submit", sendChat);
+  elements.messageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); elements.chatForm.requestSubmit(); }
+  });
+  elements.messageInput.addEventListener("input", () => {
+    elements.messageInput.style.height = "auto";
+    elements.messageInput.style.height = `${Math.min(elements.messageInput.scrollHeight, 130)}px`;
+  });
+  $$('[data-prompt]').forEach((button) => button.addEventListener("click", () => {
+    elements.messageInput.value = button.dataset.prompt;
+    elements.messageInput.focus();
+  }));
+  elements.threadInput.addEventListener("change", () => changeThread(elements.threadInput.value));
+  $("#new-thread").addEventListener("click", () => changeThread(createThreadId()));
+  $("#approve").addEventListener("click", () => decideApproval("approve"));
+  $("#reject").addEventListener("click", () => decideApproval("reject"));
+  window.addEventListener("hashchange", () => navigate(location.hash.slice(1), false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && elements.drawer.classList.contains("is-open")) closeTripDrawer();
+  });
+}
+
+function init() {
+  $("#today-label").textContent = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(new Date());
+  elements.threadInput.value = state.threadId;
+  localStorage.setItem("travelmind.thread", state.threadId);
+  loadHistory();
+  bindEvents();
+  navigate(location.hash.slice(1) || "dashboard", false);
+  loadHealth();
+  loadTrips();
+  loadApprovals();
+}
+
+init();

@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.10,<3",
     "langchain>=1,<2",
     "langgraph>=1,<2",
+    "langgraph-checkpoint-mysql[aiomysql]>=2,<3",
     "langchain-openai>=1,<2",
     "mcp>=1.12,<2",
     "httpx>=0.28,<1",

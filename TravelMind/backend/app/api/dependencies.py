@@ -26,8 +26,9 @@ def resolve_agent_runtime(request: Request) -> TravelAgentRuntime:
     if runtime is not None:
         return runtime
     registry = getattr(request.app.state, "tool_registry", None)
+    checkpointer = getattr(request.app.state, "checkpointer", None)
     try:
-        runtime = build_agent_runtime(registry=registry)
+        runtime = build_agent_runtime(registry=registry, checkpointer=checkpointer)
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     request.app.state.agent_runtime = runtime

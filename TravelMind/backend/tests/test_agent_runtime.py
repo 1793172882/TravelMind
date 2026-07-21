@@ -33,6 +33,7 @@ def test_default_registry_exposes_read_and_approved_write_tools() -> None:
     assert tools["itinerary.validate"].risk_level.value == "read"
     assert tools["trip.create"].risk_level.value == "write"
     assert tools["trip.add_itinerary_item"].risk_level.value == "write"
+    assert tools["trip.save_itinerary"].risk_level.value == "write"
 
 
 @pytest.mark.anyio

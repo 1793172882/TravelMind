@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     )
 
     database_url: str
+    checkpoint_database_url: str | None = None
     model_name: str = "qwen3.5-plus"
     model_api_key: SecretStr | None = None
     model_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -31,6 +32,12 @@ class Settings(BaseSettings):
     def resolve_mcp_config_path(cls, value: Path) -> Path:
         """Resolve relative MCP config paths from the repository root."""
         return value if value.is_absolute() else PROJECT_ROOT / value
+
+    @property
+    def langgraph_database_url(self) -> str:
+        """Return the aiomysql-compatible URL used by LangGraph persistence."""
+        value = self.checkpoint_database_url or self.database_url
+        return value.replace("mysql+pymysql://", "mysql://", 1)
 
 
 settings = Settings()

@@ -32,6 +32,12 @@ def test_demo_ui_is_served() -> None:
 
     assert response.status_code == 200
     assert "TravelMind" in response.text
+    assert 'id="view-dashboard"' in response.text
+    assert 'id="view-assistant"' in response.text
+    assert 'id="view-trips"' in response.text
+    assert 'id="create-trip-dialog"' in response.text
+
+
 def test_trip_preview() -> None:
     # json 参数自动序列化为请求体
     payload = {

@@ -15,6 +15,7 @@ from app.harness.permissions import PermissionDecision, PermissionEngine, RiskLe
 from app.harness.middleware import ToolExecutor
 from app.harness.recovery import retry_async
 from app.harness.tool_registry import ToolDefinition, ToolRegistry
+from app.infrastructure.checkpoint import TravelMindMySQLSaver
 from app.tools.budget import calculate_trip_cost
 
 
@@ -47,6 +48,13 @@ def test_budget_and_constraint_validation() -> None:
     assert calculate_trip_cost(
         Decimal("20"), Decimal("30"), Decimal("10"), Decimal("40"), Decimal("100")
     )["remaining"] == "0"
+
+
+def test_checkpoint_migrations_support_mysql_8012() -> None:
+    checkpoints_table = TravelMindMySQLSaver.MIGRATIONS[1]
+
+    assert "metadata JSON NOT NULL," in checkpoints_table
+    assert "DEFAULT ('{}')" not in checkpoints_table
 
 
 class EchoArgs(BaseModel):

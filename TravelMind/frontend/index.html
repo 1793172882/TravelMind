@@ -3,52 +3,253 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TravelMind</title>
+    <meta name="theme-color" content="#143e35" />
+    <meta name="description" content="TravelMind 智能出行助手，用 Agent 规划旅程，用 Harness 安全执行。" />
+    <title>TravelMind · 智能出行助手</title>
     <link rel="stylesheet" href="/ui/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <header>
-        <p class="eyebrow">HARNESS-DRIVEN TRAVEL AGENT</p>
-        <h1>TravelMind</h1>
-        <p>让 Agent 规划行程，让 Harness 管住工具、审批与执行。</p>
-      </header>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <a class="brand" href="#dashboard" data-nav="dashboard" aria-label="TravelMind 首页">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 16.5 12 4l8 12.5-8-3.1-8 3.1Z"/><path d="M12 13.4V20"/></svg>
+          </span>
+          <span><strong>TravelMind</strong><small>智能出行助手</small></span>
+        </a>
 
-      <section class="panel chat-panel">
-        <div class="panel-title">
-          <h2>对话</h2>
-          <label>Thread ID <input id="thread-id" value="travel-demo-1" /></label>
+        <nav class="nav-list">
+          <button class="nav-item is-active" type="button" data-nav="dashboard" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>
+            <span>总览</span>
+          </button>
+          <button class="nav-item" type="button" data-nav="assistant">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-7 7v1.5A3.5 3.5 0 0 0 6.5 18H8v-7H6.5V10a5.5 5.5 0 0 1 11 0v1H16v7h1.5a3.5 3.5 0 0 0 1.5-6.66V10a7 7 0 0 0-7-7Z"/><path d="M9.5 20h5"/></svg>
+            <span>智能助手</span>
+            <span id="nav-approval-badge" class="nav-badge" hidden>1</span>
+          </button>
+          <button class="nav-item" type="button" data-nav="trips">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6V4m8 2V4M4 9h16M6 5h12a2 2 0 0 1 2 2v12H4V7a2 2 0 0 1 2-2Z"/><path d="M8 13h3m2 0h3m-8 3h3"/></svg>
+            <span>我的行程</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-card">
+          <span class="sidebar-card-icon" aria-hidden="true">✦</span>
+          <p><strong>AI 规划建议</strong></p>
+          <p>告诉助手你的时间、预算和偏好，它会调用实时地图能力完成规划。</p>
+          <button type="button" class="text-button" data-nav="assistant">开始规划 →</button>
         </div>
-        <div id="messages" class="messages" aria-live="polite">
-          <article class="message agent">告诉我出发地、目的地、时间、预算和同行人。</article>
+
+        <div class="service-state">
+          <span id="service-dot" class="status-dot is-checking"></span>
+          <span><strong id="service-label">正在连接</strong><small>TravelMind API</small></span>
         </div>
-        <form id="chat-form" class="composer">
-          <textarea
-            id="message"
-            required
-            maxlength="10000"
-            placeholder="例如：周六带父母从上海去杭州一日游，预算 1500 元，尽量少走路。"
-          ></textarea>
-          <button type="submit">发送</button>
-        </form>
-        <div id="approval" class="approval" hidden>
-          <p>Agent 请求执行写操作，是否批准？</p>
-          <pre id="approval-detail"></pre>
-          <div>
-            <button id="approve" type="button">批准</button>
-            <button id="reject" class="secondary" type="button">拒绝</button>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <button id="menu-button" class="icon-button mobile-only" type="button" aria-label="打开导航" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+          <div class="page-heading">
+            <p id="page-kicker">旅行控制台</p>
+            <h1 id="page-title">早上好，准备好出发了吗？</h1>
           </div>
-        </div>
-      </section>
+          <div class="topbar-actions">
+            <span id="today-label" class="date-chip"></span>
+            <button class="button button-primary" type="button" data-open-create>
+              <span aria-hidden="true">＋</span> 新建行程
+            </button>
+          </div>
+        </header>
 
-      <section class="panel">
-        <div class="panel-title">
-          <h2>MySQL 行程</h2>
-          <button id="refresh-trips" class="secondary" type="button">刷新</button>
+        <section id="view-dashboard" class="view is-active" aria-labelledby="page-title">
+          <article class="hero-card">
+            <div class="hero-copy">
+              <span class="eyebrow">HARNESS-DRIVEN TRAVEL AGENT</span>
+              <h2>从一句话，到一段值得期待的旅程。</h2>
+              <p>TravelMind 理解你的出行需求，连接实时地图、天气与路线能力，并在关键操作前向你确认。</p>
+              <div class="hero-actions">
+                <button class="button button-light" type="button" data-nav="assistant">让 AI 帮我规划</button>
+                <button class="button button-ghost-light" type="button" data-open-create>手动创建行程</button>
+              </div>
+            </div>
+            <div class="hero-visual" aria-hidden="true">
+              <div class="route-line"><i></i><i></i><i></i></div>
+              <div class="destination-card">
+                <span>本周灵感</span>
+                <strong>去山野，也去生活里</strong>
+                <small>实时路线 · 天气建议 · 智能编排</small>
+              </div>
+            </div>
+          </article>
+
+          <div class="stat-grid" aria-label="行程统计">
+            <article class="stat-card">
+              <span class="stat-icon green">⌁</span>
+              <div><small>全部行程</small><strong id="stat-total">—</strong><span>已创建的旅行计划</span></div>
+            </article>
+            <article class="stat-card">
+              <span class="stat-icon orange">◷</span>
+              <div><small>规划中</small><strong id="stat-draft">—</strong><span>等待继续完善</span></div>
+            </article>
+            <article class="stat-card">
+              <span class="stat-icon blue">✓</span>
+              <div><small>已归档</small><strong id="stat-archived">—</strong><span>留住旅行足迹</span></div>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="surface recent-section">
+              <div class="section-heading">
+                <div><span class="section-kicker">RECENT TRIPS</span><h2>最近行程</h2></div>
+                <button class="text-button" type="button" data-nav="trips">查看全部 →</button>
+              </div>
+              <div id="recent-trips" class="recent-list" aria-live="polite">
+                <div class="skeleton-row"></div><div class="skeleton-row"></div>
+              </div>
+            </section>
+
+            <section class="surface capability-section">
+              <div class="section-heading">
+                <div><span class="section-kicker">SYSTEM</span><h2>能力连接</h2></div>
+                <span id="capability-status" class="pill pill-success">检测中</span>
+              </div>
+              <div class="capability-list">
+                <article><span class="capability-logo qwen">Q</span><div><strong>通义千问</strong><small>意图理解与行程推理</small></div><i></i></article>
+                <article><span class="capability-logo amap">A</span><div><strong>高德地图</strong><small>地点、天气与实时路线</small></div><i></i></article>
+                <article><span class="capability-logo harness">H</span><div><strong>Agent Harness</strong><small>工具权限、审批与重试</small></div><i></i></article>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-assistant" class="view" aria-labelledby="page-title" hidden>
+          <div class="assistant-layout">
+            <section class="chat-card">
+              <div class="chat-header">
+                <div class="agent-profile">
+                  <span class="agent-avatar">TM<i></i></span>
+                  <div><strong>TravelMind 助手</strong><small><span></span> 在线 · 由千问驱动</small></div>
+                </div>
+                <div class="thread-controls">
+                  <label for="thread-id">会话</label>
+                  <input id="thread-id" maxlength="100" aria-label="会话 ID" />
+                  <button id="new-thread" class="icon-button" type="button" title="新建会话" aria-label="新建会话">
+                    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div id="messages" class="messages" aria-live="polite" aria-label="对话消息"></div>
+
+              <div id="prompt-area" class="prompt-area">
+                <p>可以试着这样问</p>
+                <div class="prompt-chips">
+                  <button type="button" data-prompt="周六带父母从上海去杭州一日游，预算 1500 元，尽量少走路。">杭州亲子一日游</button>
+                  <button type="button" data-prompt="帮我查一下北京今天的天气，并推荐三个适合散步的地方。">天气与地点推荐</button>
+                  <button type="button" data-prompt="从广州南站到广州塔怎么走？对比驾车和公共交通。">实时路线对比</button>
+                </div>
+              </div>
+
+              <form id="chat-form" class="composer">
+                <textarea id="message" required maxlength="10000" rows="1" aria-label="发送给 TravelMind 的消息" placeholder="描述你的目的地、时间、预算和偏好…"></textarea>
+                <div class="composer-footer">
+                  <span>Enter 发送 · Shift + Enter 换行</span>
+                  <button id="send-button" class="send-button" type="submit" aria-label="发送消息">
+                    <svg viewBox="0 0 24 24"><path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/></svg>
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <aside class="assistant-panel">
+              <section class="surface compact-card">
+                <div class="section-heading"><div><span class="section-kicker">CURRENT RUN</span><h2>本次运行</h2></div><span id="run-status" class="pill">待命</span></div>
+                <ol class="run-steps">
+                  <li class="is-ready"><i>1</i><span><strong>理解需求</strong><small>千问分析出行意图</small></span></li>
+                  <li><i>2</i><span><strong>调用工具</strong><small>通过 Harness 安全执行</small></span></li>
+                  <li><i>3</i><span><strong>生成方案</strong><small>整合路线与旅行建议</small></span></li>
+                </ol>
+              </section>
+
+              <section id="approval" class="approval-card" hidden>
+                <span class="approval-icon">!</span>
+                <span class="section-kicker">ACTION REQUIRED</span>
+                <h2>需要你的批准</h2>
+                <p>Agent 即将执行会改变数据的操作，请确认后继续。</p>
+                <div id="approval-detail" class="approval-detail"></div>
+                <div class="approval-actions">
+                  <button id="reject" class="button button-secondary" type="button">拒绝</button>
+                  <button id="approve" class="button button-warning" type="button">批准执行</button>
+                </div>
+              </section>
+
+              <section class="surface compact-card safety-card">
+                <span class="safety-icon">⌾</span>
+                <div><strong>操作始终由你掌控</strong><p>查询类工具自动运行；创建、修改等写操作会先请求批准。</p></div>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section id="view-trips" class="view" aria-labelledby="page-title" hidden>
+          <div class="trip-toolbar surface">
+            <label class="search-box" for="trip-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg>
+              <input id="trip-search" type="search" placeholder="搜索出发地或目的地" />
+            </label>
+            <label class="select-box" for="trip-status-filter">
+              <span>状态</span>
+              <select id="trip-status-filter"><option value="all">全部</option><option value="draft">规划中</option><option value="archived">已归档</option></select>
+            </label>
+            <button id="refresh-trips" class="button button-secondary" type="button">刷新</button>
+          </div>
+          <div class="trip-list-heading"><div><span class="section-kicker">YOUR JOURNEYS</span><h2>全部行程</h2></div><span id="trip-count">0 个行程</span></div>
+          <div id="trips" class="trip-grid" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <nav class="mobile-nav" aria-label="移动端导航">
+        <button class="is-active" type="button" data-nav="dashboard"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm10 7h6v-9h-6v9Z"/></svg><span>总览</span></button>
+        <button type="button" data-nav="assistant"><svg viewBox="0 0 24 24"><path d="M5 18V10a7 7 0 0 1 14 0v8M8 12v6m8-6v6"/></svg><span>助手</span></button>
+        <button type="button" data-nav="trips"><svg viewBox="0 0 24 24"><path d="M4 9h16M7 4v3m10-3v3M5 6h14v14H5Z"/></svg><span>行程</span></button>
+      </nav>
+    </div>
+
+    <div id="overlay" class="overlay" hidden></div>
+
+    <dialog id="create-trip-dialog" class="modal">
+      <form id="create-trip-form" method="dialog">
+        <div class="modal-header">
+          <div><span class="section-kicker">NEW JOURNEY</span><h2>创建一段新行程</h2><p>先记录基本信息，后续可以继续添加详细日程。</p></div>
+          <button class="icon-button" type="button" data-close-modal aria-label="关闭">×</button>
         </div>
-        <div id="trips" class="trip-list">尚未读取。</div>
-      </section>
-    </main>
+        <div class="form-grid">
+          <label><span>出发地 *</span><input name="origin" required maxlength="100" placeholder="例如：上海" autocomplete="address-level2" /></label>
+          <label><span>目的地 *</span><input name="destination" required maxlength="100" placeholder="例如：杭州" autocomplete="address-level2" /></label>
+          <label><span>开始时间</span><input name="start_at" type="datetime-local" /></label>
+          <label><span>结束时间</span><input name="end_at" type="datetime-local" /></label>
+          <label class="form-span"><span>预算（元）</span><input name="budget" type="number" min="0" step="0.01" placeholder="例如：1500" /></label>
+        </div>
+        <div class="modal-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button id="create-trip-submit" class="button button-primary" type="submit">创建行程</button></div>
+      </form>
+    </dialog>
+
+    <aside id="trip-drawer" class="drawer" aria-hidden="true" aria-labelledby="drawer-title">
+      <div class="drawer-header">
+        <div><span class="section-kicker">TRIP DETAILS</span><h2 id="drawer-title">行程详情</h2></div>
+        <button id="close-drawer" class="icon-button" type="button" aria-label="关闭详情">×</button>
+      </div>
+      <div id="drawer-content" class="drawer-content"></div>
+    </aside>
+
+    <template id="empty-template">
+      <div class="empty-state"><span>⌖</span><h3>还没有行程</h3><p>创建第一段旅程，或让智能助手为你规划。</p><button class="button button-primary" type="button" data-open-create>创建行程</button></div>
+    </template>
+
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <script src="/ui/app.js" defer></script>
   </body>
 </html>

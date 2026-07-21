@@ -38,8 +38,17 @@ class RouteArgs(BaseModel):
 
     origin: str = Field(min_length=1, max_length=200)
     destination: str = Field(min_length=1, max_length=200)
-    city: str | None = Field(default=None, max_length=50)
+    city: str | None = Field(
+        default=None,
+        max_length=50,
+        description="出发城市；起终点跨城时只用于解析出发地",
+    )
     mode: Literal["walking", "driving", "transit"] = "transit"
+    destination_city: str | None = Field(
+        default=None,
+        max_length=50,
+        description="目的地城市；跨城路线建议填写",
+    )
 
 
 def _observed_at() -> str:
@@ -238,6 +247,7 @@ async def plan_route(
     destination: str,
     city: str | None = None,
     mode: Literal["walking", "driving", "transit"] = "transit",
+    destination_city: str | None = None,
     *,
     client: httpx.AsyncClient | None = None,
     api_key: str | None = None,
@@ -252,12 +262,27 @@ async def plan_route(
         )
     try:
         origin_place = await _resolve_place(origin, city, client=client, api_key=api_key)
-        destination_place = await _resolve_place(
-            destination,
-            city,
-            client=client,
-            api_key=api_key,
-        )
+        try:
+            destination_place = await _resolve_place(
+                destination,
+                destination_city or city,
+                client=client,
+                api_key=api_key,
+            )
+        except AMapAPIError as error:
+            can_retry_without_city = (
+                destination_city is None
+                and city is not None
+                and ("30001" in str(error) or "未找到地点" in str(error))
+            )
+            if not can_retry_without_city:
+                raise
+            destination_place = await _resolve_place(
+                destination,
+                None,
+                client=client,
+                api_key=api_key,
+            )
         params: dict[str, Any] = {
             "origin": origin_place["location"],
             "destination": destination_place["location"],
@@ -268,9 +293,13 @@ async def plan_route(
             if not origin_city:
                 raise AMapAPIError("公交路线必须提供 city，或使用可识别的中文出发地")
             params["city"] = origin_city
-            destination_city = destination_place.get("citycode") or destination_place.get("city")
-            if destination_city:
-                params["cityd"] = destination_city
+            destination_route_city = (
+                destination_city
+                or destination_place.get("citycode")
+                or destination_place.get("city")
+            )
+            if destination_route_city:
+                params["cityd"] = destination_route_city
             params["strategy"] = 3
             path = "/v3/direction/transit/integrated"
         else:

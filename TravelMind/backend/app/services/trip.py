@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -43,6 +44,32 @@ class TripService:
         self._commit()
         self.session.refresh(trip)
         return trip
+
+    def create_trip_with_items(
+        self,
+        *,
+        origin: str,
+        destination: str,
+        start_at: datetime,
+        end_at: datetime,
+        budget: Decimal | None,
+        items: Sequence[dict[str, Any]],
+    ) -> tuple[Trip, list[ItineraryItem]]:
+        """Persist a complete itinerary atomically."""
+        trip = Trip(
+            origin=origin,
+            destination=destination,
+            start_at=start_at,
+            end_at=end_at,
+            budget=budget,
+        )
+        self.repository.add(trip)
+        self.session.flush()
+        stored_items = [ItineraryItem(trip_id=trip.id, **item) for item in items]
+        self.itinerary_items.add_all(stored_items)
+        self._commit()
+        self.session.refresh(trip)
+        return trip, stored_items
 
     def get_trip(self, trip_id: int) -> Trip | None:
         """Return one trip by ID, or None when it does not exist."""

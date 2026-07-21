@@ -7,6 +7,7 @@ from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
@@ -29,10 +30,12 @@ from app.tools.amap import (
 from app.tools.trips import (
     AddItineraryItemArgs,
     CreateTripArgs,
+    SaveItineraryArgs,
     TripIdArgs,
     add_itinerary_item_record,
     create_trip_record,
     get_trip_record,
+    save_itinerary_record,
 )
 from app.tools.weather import WeatherArgs, query_weather
 
@@ -40,6 +43,15 @@ from app.tools.weather import WeatherArgs, query_weather
 def build_default_registry() -> ToolRegistry:
     """Register the local tools available in the first runnable Agent."""
     registry = ToolRegistry()
+    registry.register(
+        ToolDefinition(
+            name="trip.save_itinerary",
+            description="确定性复验候选方案，并在一个MySQL事务中保存行程和全部日程项。",
+            args_model=SaveItineraryArgs,
+            handler=save_itinerary_record,
+            risk_level=RiskLevel.WRITE,
+        )
+    )
     registry.register(
         ToolDefinition(
             name="budget.calculate_trip_cost",
@@ -216,6 +228,7 @@ def build_agent_runtime(
     *,
     model: BaseChatModel | None = None,
     registry: ToolRegistry | None = None,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> TravelAgentRuntime:
     """Build the real model runtime or accept a Fake model for tests."""
     if model is None:
@@ -234,7 +247,7 @@ def build_agent_runtime(
         tools=_langchain_tools(executor),
         system_prompt=SYSTEM_PROMPT,
         context_schema=AgentContext,
-        checkpointer=InMemorySaver(),
+        checkpointer=checkpointer or InMemorySaver(),
         name="travel_agent",
     )
     return TravelAgentRuntime(agent)
