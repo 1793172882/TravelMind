@@ -1,214 +1,191 @@
 # TravelMind
 
-TravelMind 是一个面向真实出行场景的单 Agent 项目。它使用 LangChain/LangGraph 负责模型与工具循环，使用 Harness 统一管理工具、权限、审批、上下文、记忆、任务、恢复和 MCP Client，并通过 FastAPI 对外提供 Web 与飞书入口。
+TravelMind 是一个基于 Harness 思想构建的单 Agent 智慧出行助手。项目使用 LangChain/LangGraph 组织模型、工具调用、Checkpoint 与人工审批；使用自研 Harness 统一管理工具注册、权限、恢复、记忆、任务、Skill 和 MCP Client；通过 FastAPI 同时服务 Web 页面和飞书消息入口。
 
 ```text
-用户 / 飞书
+Web / 飞书
     ↓
-FastAPI Controller
+FastAPI API / Channel
     ↓
-Agent Runtime（LangChain + LangGraph）
+LangChain create_agent + LangGraph Checkpoint
     ↓
-Harness（Registry → Permission → Interrupt → Recovery）
-    ├── 本地工具
-    ├── 高德 Web 服务 → 地点/POI/天气/路线
-    └── MCP Client Manager → 飞书/其他 MCP Server
+Harness（Registry → Permission → Interrupt → Retry）
+    ├── 本地工具：预算、约束、行程、Memory、Task、Skill
+    ├── 高德 Web 服务：地理编码、POI、天气、路线、静态地图
+    └── MCP Manager：飞书远程 MCP、官方 lark-mcp、其他 MCP Server
 
-Controller → Service → Repository → SQLAlchemy ORM → MySQL
+HTTP 行程接口：Controller → Service → Repository → SQLAlchemy → MySQL
 ```
 
-## 当前已实现
+## 已实现能力
 
-- MySQL 行程与日程项 CRUD，严格遵循 Controller → Service → Repository 分层。
-- LangChain `create_agent` 单 Agent 与可跨重启恢复的 MySQL LangGraph Checkpoint。
-- 阿里云百炼千问 `qwen3.5-plus` 默认模型（OpenAI 兼容协议）。
-- 高德真实地理编码、POI、天气、步行/驾车/公交路线工具。
-- 基于 `thread_id` 的多轮对话、工具调用、人工审批、暂停与恢复。
-- Harness Tool Registry、Pydantic 参数校验、权限分级、失败重试。
-- 上下文压缩、用户偏好 Memory、依赖任务、Skill 按需加载的最小实现。
-- Memory 与 Task 已持久化到 MySQL，并通过动态 Prompt/工具真正接入 Agent。
-- 内置 MCP Manager，支持 stdio 和 Streamable HTTP；每个 Server 独立 Session 和故障隔离。
-- MCP 工具动态发现并进入统一 Harness 权限管线。
-- 飞书 Webhook challenge、token/签名校验、文本消息转换和事件去重。
-- 约束复验后一次审批、单事务保存完整行程与全部日程项。
-- 本地账号登录与用户级行程、Checkpoint 会话隔离。
-- MySQL Outbox、持久 Webhook 去重、出发前 24/2 小时天气复查、自动重规划及飞书通知。
-- 无 Node 依赖的响应式页面，包含 SSE 工具进度、服务端聊天历史、静态地图及完整行程编辑。
-- 100 条中文 Agent 评测集，覆盖工具选择、约束满足、审批和安全边界。
+| 模块 | 当前实现 |
+|---|---|
+| Agent | 千问 `qwen3.5-plus`、LangChain `create_agent`、多轮对话、动态 Prompt、长上下文摘要 |
+| LangGraph | MySQL Checkpoint、按 `thread_id` 恢复、`interrupt` 审批与继续执行 |
+| Harness | Tool Registry、Pydantic 参数校验、READ/WRITE/DANGEROUS 权限、有限重试、执行事件 |
+| 出行工具 | 预算计算、行程约束校验、高德地理编码、POI、天气、步行/驾车/公交路线 |
+| 数据 | MySQL 行程和日程 CRUD、完整行程单事务保存、用户/会话隔离 |
+| 记忆与任务 | MySQL 用户偏好、带依赖 Task、按需加载本地 Skill |
+| MCP | stdio 与 Streamable HTTP、动态工具发现、独立 Session、单 Server 故障隔离 |
+| 飞书 | Webhook 验证/去重、消息回复、审批回复、文档/日历/消息工具、Outbox 重试 |
+| 自动化 | 出发前 24/2 小时天气复查、Agent 调整建议、飞书主动通知 |
+| Web 产品 | 登录注册、Agent 对话、SSE 进度、审批、聊天历史、行程管理、静态地图 |
+| 评测 | 100 条中文用例，统计任务完成率、工具选择、约束、审批与 P50/P95 延迟 |
 
-当前是“可运行的后端 MVP”，不是所有外部服务都开箱即用。真实模型调用需要阿里云百炼 Key，高德实时数据需要 Web 服务 Key；飞书写文档、日历等能力需要可用的飞书 MCP Server。项目不会提交任何真实密钥。
+当前自动化检查为 **40 passed**。项目定位是本地可运行、可演示、可用于简历讲解的产品级 MVP，不包含云端部署和多 Agent。
 
-## 目录职责
+## 项目结构
 
 ```text
-backend/app/
-├── api/                 # Controller、HTTP Schema、依赖组合
-├── services/            # 业务流程和事务边界
-├── domain/              # 纯业务模型与确定性约束
-├── infrastructure/
-│   ├── models/          # 一张表一个 SQLAlchemy ORM 文件/类
-│   └── repositories/    # 数据库查询与写入
-├── agent/               # 单 Agent 装配、Prompt、运行上下文
-├── harness/             # 工具、权限、审批、恢复、记忆、任务、Skill
-├── mcp/                 # 内置 MCP Client Manager 与工具适配
-├── channels/            # 飞书等入站消息渠道
-└── tools/               # 本地确定性工具
+TravelMind/
+├── backend/
+│   ├── app/
+│   │   ├── api/                 # FastAPI Controller、Schema、依赖组合
+│   │   ├── services/            # 业务流程与事务边界
+│   │   ├── domain/              # 纯业务模型与确定性约束
+│   │   ├── infrastructure/      # SQLAlchemy、Repository、Checkpoint、Outbox
+│   │   ├── agent/               # 单 Agent、Prompt、运行上下文
+│   │   ├── harness/             # 工具、权限、恢复、记忆、任务、Skill、Scheduler
+│   │   ├── mcp/                 # MCP Client Manager、认证与工具适配
+│   │   ├── channels/            # 飞书入站渠道
+│   │   ├── tools/               # 本地业务工具和高德工具
+│   │   └── main.py              # 应用组合根与 lifespan
+│   ├── evals/                   # 100 条 Agent 评测数据
+│   ├── scripts/                 # MCP 检查、真实 Agent 评测
+│   ├── tests/                   # 40 项自动化检查
+│   ├── schema.sql
+│   └── pyproject.toml
+├── frontend/                    # 无 Node 依赖的原生 Web 页面
+├── config/                      # MCP 配置模板
+├── skills/                      # 按需加载的领域 Skill
+├── docs/                        # 产品、架构、实现和学习文档
+├── .env.example
+└── README.md
 ```
 
-完整职责说明见 [项目结构与模块职责](docs/07-project-structure.md)，设计决策见 [详细架构设计](docs/02-architecture-design.md)。
+完整文件职责见 [项目结构与模块职责](docs/07-project-structure.md)。
 
-## 1. 创建环境并安装
+## 快速开始
+
+### 1. 安装
 
 ```powershell
 conda create -n travelmind python=3.12 -y
 conda activate travelmind
-cd "C:\Users\he\Documents\learn harness\TravelMind\backend"
+cd TravelMind\backend
 python -m pip install -e ".[dev]"
 ```
 
-首次启动会自动创建 LangGraph Checkpoint 表；项目兼容当前 MySQL 8.0.12。
+### 2. 配置 MySQL
 
-## 2. 配置 MySQL
-
-在 MySQL 8.x 中执行 [schema.sql](backend/schema.sql)，然后复制环境变量模板：
+MySQL 8.x 执行 [backend/schema.sql](backend/schema.sql)，然后在仓库根目录创建本地配置：
 
 ```powershell
-cd "C:\Users\he\Documents\learn harness\TravelMind"
 Copy-Item .env.example .env
 ```
 
-编辑 `.env` 中的 `DATABASE_URL`。示例：
+至少填写：
 
-```text
+```dotenv
 DATABASE_URL=mysql+pymysql://用户名:密码@127.0.0.1:3306/travelmind?charset=utf8mb4
-```
-
-## 3. 配置千问、高德与 MCP
-
-在 `.env` 填写：
-
-```text
-DASHSCOPE_API_KEY=阿里云百炼API Key
+DASHSCOPE_API_KEY=阿里云百炼APIKey
 AMAP_API_KEY=高德Web服务Key
-AUTH_SECRET=一个足够长的随机字符串
+AUTH_SECRET=本地长随机字符串
 ```
 
-需要强制所有 Web API 登录时设置 `AUTH_REQUIRED=true`；本地学习阶段默认允许匿名使用。
+应用启动时会创建缺少的业务表；LangGraph 会单独初始化 Checkpoint 表。当前兼容 MySQL 8.0.12。
 
-| 环境变量 | 国内服务 | 获取位置 | 用途 |
-|---|---|---|---|
-| `DASHSCOPE_API_KEY` | 阿里云百炼 | [百炼控制台](https://bailian.console.aliyun.com/) | 千问对话、工具调用 |
-| `AMAP_API_KEY` | 高德开放平台 | [应用与 Key](https://console.amap.com/dev/key/app) | 地理编码、POI、天气、路线 |
-| `FEISHU_VERIFICATION_TOKEN` | 飞书开放平台 | 飞书应用事件订阅配置 | 验证入站 Webhook |
-| `FEISHU_ENCRYPT_KEY` | 飞书开放平台 | 飞书应用事件订阅配置 | 校验回调签名 |
-| `FEISHU_MCP_URL` | 飞书官方 MCP | `https://mcp.feishu.cn/mcp` | 远程 MCP 文档工具 |
-| `FEISHU_APP_ID/SECRET` | 飞书开放平台 | 自建应用凭证 | 自动获取并刷新官方 MCP 的 tenant token |
-
-默认模型与中国北京地域兼容地址已经配置：
-
-```text
-MODEL_NAME=qwen3.5-plus
-MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-```
-
-启用 MCP：
+### 3. 启用 MCP（可选）
 
 ```powershell
 Copy-Item config\mcp.example.json config\mcp.json
 ```
 
-编辑 `config/mcp.json`，把目标 Server 的 `enabled` 改为 `true`。URL 与 Token 只填写在 `.env`，JSON 中只保存环境变量名。
+在 `config/mcp.json` 中只启用已配置的 Server。密钥仅写入 `.env`；`.env` 与 `config/mcp.json` 均被 Git 忽略。
 
-官方飞书远程 MCP 使用固定地址 `https://mcp.feishu.cn/mcp`。配置
-`FEISHU_APP_ID` 和 `FEISHU_APP_SECRET` 后，TravelMind 会自动获取并缓存两小时有效的
-`tenant_access_token`，通过 `X-Lark-MCP-TAT` 认证。`allowed_tools` 是必填白名单；
-当前示例启用官方文档工具 `fetch-doc`。运行以下命令可安全检查连接，不会输出凭证：
+| 集成 | 关键配置 | 用途 |
+|---|---|---|
+| 千问 | `DASHSCOPE_API_KEY` | 对话与工具调用 |
+| 高德 | `AMAP_API_KEY` | 地点、POI、天气、路线、地图 |
+| 飞书入站 | `FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY` | Webhook 校验 |
+| 飞书官方 MCP | `FEISHU_APP_ID`、`FEISHU_APP_SECRET` | tenant token 与远程文档工具 |
+| 官方 lark-mcp | 同上，并启用 `lark_openapi` | 消息、文档、日历写入 |
+
+检查 MCP 连接（不会输出凭证）：
 
 ```powershell
 cd backend
 python scripts/check_mcp.py
 ```
 
-需要文档写入、日历和机器人发消息时，启用 `config/mcp.example.json` 中的
-`lark_openapi` stdio Server。它固定使用官方 `@larksuiteoapi/lark-mcp@0.5.1`，
-通过子进程环境变量读取 App 凭证，并只开放 `.env.example` 中列出的七个工具。
-工具名包含 `create` 的操作会自动进入 Harness 审批，不会静默写入飞书。
-
-## 4. 启动服务
-
-```powershell
-cd "C:\Users\he\Documents\learn harness\TravelMind\backend"
-python -m uvicorn app.main:app --reload
-```
-
-打开：
-
-- [健康检查](http://127.0.0.1:8000/health)
-- [Swagger API 文档](http://127.0.0.1:8000/docs)
-- [TravelMind 演示界面](http://127.0.0.1:8000/ui/)
-
-核心接口：
-
-```text
-POST /chat
-GET  /chat/{thread_id}/history
-GET  /chat/{thread_id}/events
-GET  /approvals/{thread_id}
-POST /approvals/{thread_id}
-POST /trips
-GET  /trips
-GET  /trips/{trip_id}
-POST /trips/{trip_id}/items
-GET  /trips/{trip_id}/items
-POST /trips/{trip_id}/archive
-PATCH/DELETE /trips/{trip_id}
-PATCH/DELETE /trips/{trip_id}/items/{item_id}
-GET  /trips/{trip_id}/map
-POST /auth/register
-POST /auth/login
-GET  /automations
-POST /webhooks/feishu
-```
-
-## 5. 运行验收
+### 4. 启动
 
 ```powershell
 cd backend
-python -m ruff check app tests
-python -m pytest -q
+python -m uvicorn app.main:app --reload
 ```
 
-启动服务后运行 100 条真实 Agent 评测：
+- 健康检查：[http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- Swagger：[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- 产品界面：[http://127.0.0.1:8000/ui/](http://127.0.0.1:8000/ui/)
+
+## 主要 API
+
+```text
+POST /auth/register              POST /auth/login             GET /auth/me
+POST /chat                       GET  /chat/{thread_id}/history
+GET  /chat/{thread_id}/events    GET  /chat/{thread_id}/events/snapshot
+GET  /approvals/{thread_id}      POST /approvals/{thread_id}
+
+POST /trips/preview              POST /trips                   GET /trips
+GET/PATCH/DELETE /trips/{trip_id}
+POST /trips/{trip_id}/archive
+POST/GET /trips/{trip_id}/items
+PATCH/DELETE /trips/{trip_id}/items/{item_id}
+GET /trips/{trip_id}/map
+
+GET /automations                 POST /automations/run
+POST /webhooks/feishu
+GET /health                      GET /version
+GET /metrics                     GET /integrations
+```
+
+接口不使用额外 `/api` 前缀。`AUTH_REQUIRED=false` 时允许匿名学习；开启后需携带登录返回的 Bearer Token。
+
+## 测试与 Agent 评测
 
 ```powershell
-python scripts/evaluate.py
+cd backend
+python -m ruff check app tests scripts
+python -m pytest -q
+node --check ..\frontend\app.js
 ```
 
-评测会生成 `backend/evals/latest_report.md`，包含任务完成率、工具选择准确率、
-约束满足率、审批准确率以及 P50/P95 延迟。开发时可先运行少量或单类用例：
+服务启动后运行真实模型/工具评测：
 
 ```powershell
 python scripts/evaluate.py --limit 10
 python scripts/evaluate.py --category route
+python scripts/evaluate.py
 ```
 
-运行状态可通过 `GET /metrics` 查看，模型、高德和飞书 MCP 就绪情况通过
-`GET /integrations` 查看。
-
-若 Windows 沙箱禁止创建子进程，只有真实 stdio MCP 测试会出现 `WinError 5`；在普通终端运行即可。
+完整运行会在 `backend/evals/latest_report.md` 生成报告。100 条用例分为预算、约束、天气、POI、路线、偏好、行程读写、安全和复合任务。真实评测会消耗模型额度并调用高德服务。
 
 ## 当前边界
 
-- 飞书消息、文档和日历代码链路已接通；真实写入仍取决于飞书开放平台权限、事件订阅和可访问的 HTTPS 回调地址。
-- 第一版不做自动付款、抢票、非官方个人微信登录、多 Agent、微服务、Redis或向量数据库。
-- 按当前项目范围不提供 Docker Compose、CI/CD 或云端部署配置。
+- 飞书代码链路已完成，但真实端到端验收依赖应用权限、版本发布、事件订阅和公网 HTTPS Webhook。
+- 静态地图展示地点标记，不提供交互式道路折线。
+- `/metrics` 与 SSE 事件保存在单进程内存中，重启后清空。
+- 项目没有 Alembic 版本化迁移、Docker Compose、CI/CD、云部署和多 Agent。
+- 不做自动付款、抢票、下单、非官方微信登录或无数据依据的实时价格承诺。
 
-## 文档导航
+## 文档
 
-1. [产品需求文档](docs/01-product-requirements.md)
+1. [产品需求与当前范围](docs/01-product-requirements.md)
 2. [详细架构设计](docs/02-architecture-design.md)
 3. [Harness 与 MCP 设计](docs/03-harness-and-mcp-design.md)
-4. [实现流程与里程碑](docs/04-implementation-roadmap.md)
+4. [实现状态与演进记录](docs/04-implementation-roadmap.md)
 5. [项目驱动学习路线](docs/05-project-learning-guide.md)
-6. [数据模型、接口与测试](docs/06-data-api-testing.md)
+6. [数据模型、API 与测试](docs/06-data-api-testing.md)
 7. [项目结构与模块职责](docs/07-project-structure.md)

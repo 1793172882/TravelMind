@@ -1,367 +1,336 @@
-# 数据模型、接口与测试设计
+# 数据模型、API 与测试
 
-## 1. 领域模型
+## 1. 数据模型分层
 
-### TripRequirement
+项目有三类“模型”，用途不同：
+
+| 类型 | 位置 | 用途 |
+|---|---|---|
+| API Schema | `app/api/schemas` | 校验 HTTP 请求和序列化响应 |
+| Domain Model | `app/domain/models.py` | 候选行程和确定性约束 |
+| ORM Model | `app/infrastructure/models` | 映射 MySQL 表 |
+
+不要把 ORM 对象直接作为 Agent State，也不要让 Repository 接收 HTTP Request。
+
+## 2. Domain Model
+
+### `TripRequirement`
 
 ```text
-destination              目的地
-start_at/end_at          时间范围
-departure_location       出发地点
-return_deadline          最晚返回时间
-budget                   总预算
-travelers                同行人类型与数量
-must_visit               必去地点
-excluded_places          禁止地点
-max_walking_distance_m   最大步行距离
-transport_preferences    交通偏好
-dietary_restrictions     饮食限制
-other_preferences        其他软偏好
+destination
+start_at
+end_at
+budget                    可选，Decimal >= 0
+max_walking_distance_m    可选，整数 >= 0
+must_visit                字符串列表
 ```
 
-### ItineraryItem
+### `ItineraryItem`
 
 ```text
-id
 title
-place_id
 location
-start_at/end_at
-transport_mode
-travel_duration_minutes
-walking_distance_m
-estimated_cost
-source
-observed_at
-notes
+start_at
+end_at
+estimated_cost            Decimal，默认 0
+walking_distance_m        整数，默认 0
+source                    可选
 ```
 
-### Trip
+### `Itinerary`
+
+```text
+items: list[ItineraryItem]
+```
+
+领域校验实际覆盖：整体时间合法、日程时间合法、超出范围、时间重叠、预算、步行距离和必去地点。
+
+## 3. MySQL 表
+
+项目使用逻辑外键，不创建数据库 `FOREIGN KEY`。行程所有权通过查询条件控制，日程删除由 Service 协调。
+
+### `users`
+
+```text
+id               BIGINT 主键
+username         唯一用户名
+password_hash    PBKDF2 密码摘要
+created_at
+```
+
+### `trips`
 
 ```text
 id
-user_id
-thread_id
-version
-status
-requirement
-itinerary
-total_cost
-total_walking_distance_m
-approved_at
+owner_id         anonymous / web:{id} / feishu:{open_id}
+thread_id        可选，创建行程的 Agent 会话
+origin
+destination
+start_at/end_at  MySQL DATETIME，可空
+budget           DECIMAL(10,2)，可空
+status           draft / active / completed / archived
 created_at/updated_at
 ```
 
-所有时间使用带时区的ISO 8601；金额使用Decimal，不使用float。
-
-## 2. Agent State
-
-建议使用TypedDict定义可持久化状态：
-
-```text
-messages
-trip_id
-trip_version
-requirements
-todo_items
-candidate_itinerary
-validation_errors
-pending_approval
-sync_status
-```
-
-不要把数据库连接、MCP Session或HTTP Client放入State。
-
-## 3. 数据表
-
-### users
+### `itinerary_items`
 
 ```text
 id
-display_name
-timezone
-created_at
-```
-
-### channel_identities
-
-```text
-channel
-external_user_id
-user_id
-created_at
-```
-
-### user_preferences
-
-```text
-user_id
-preferences_json
-version
-updated_at
-```
-
-### trips
-
-```text
-id
-user_id
-thread_id
-version
-status
-requirement_json
-itinerary_json
-approved_at
-created_at
-updated_at
-```
-
-### tasks
-
-```text
-id
-thread_id
-agent_id
-parent_id
+trip_id          逻辑外键
+day_number
+sort_order
 title
-status
-blocked_by_json
-result_json
+location
+start_at/end_at
+estimated_cost
+source
 created_at
+```
+
+### `user_preferences`
+
+```text
+user_id                    主键
+max_walking_distance_m
+preferred_transport        JSON 数组
+dietary_restrictions       JSON 数组
+travels_with_elderly
 updated_at
 ```
 
-### tool_audits
+### `harness_tasks`
 
 ```text
-id
-request_id
-thread_id
-agent_id
-tool_name
-risk_level
-arguments_digest
-status
-duration_ms
-error_code
-created_at
+task_id                    字符串主键
+user_id/thread_id
+description
+blocked_by                 JSON 数组
+status                     pending/running/completed/failed
+result
+agent_id                   默认 travel_agent
+created_at/updated_at
 ```
 
-默认不保存敏感原始参数，只保存脱敏摘要。
+### `webhook_events`
 
-### outbox
+保存 `event_id` 和 `expires_at`，阻止飞书重复回调重复执行。
 
-```text
-id
-event_type
-aggregate_id
-idempotency_key
-payload_json
-status
-attempts
-next_attempt_at
-created_at
-updated_at
+### `outbox_events`
+
+保存 MCP 调用主题、参数、唯一幂等键、状态、尝试次数、下次执行时间和最后错误。最多重试 5 次。
+
+### `scheduled_jobs`
+
+保存行程的 `weather_24h`、`weather_2h` 任务、运行时间、状态、尝试次数、天气/建议结果和错误。
+
+### LangGraph 表
+
+Checkpoint 表由 `langgraph-checkpoint-mysql` 创建。`TravelMindMySQLSaver` 只调整官方迁移 SQL，以兼容 MySQL 8.0.12 不允许 JSON 默认值的限制。
+
+## 4. 数据库初始化
+
+首次可手动执行 `backend/schema.sql`。应用启动时 `Base.metadata.create_all()` 会创建缺少的业务表，并为早期 `trips` 表增量补充 `owner_id/thread_id`。
+
+当前没有 Alembic。后续若频繁修改生产表结构，再引入版本化迁移；本地简历项目不需要额外迁移框架。
+
+## 5. 鉴权与用户隔离
+
+### 注册
+
+```http
+POST /auth/register
+Content-Type: application/json
+
+{"username":"traveler","password":"至少8个字符"}
 ```
 
-## 4. HTTP API
+### 登录
 
-### 会话
-
-```text
-POST /api/chat
-GET  /api/threads/{thread_id}/events
-GET  /api/threads/{thread_id}
+```http
+POST /auth/login
 ```
 
-`POST /api/chat`最小请求：
+返回 HMAC 签名 Bearer Token。使用：
+
+```http
+Authorization: Bearer <access_token>
+```
+
+`GET /auth/me` 返回当前身份。`AUTH_REQUIRED=false` 时没有 Token 的请求使用匿名身份；设为 `true` 后强制登录。
+
+行程 Repository 按 `owner_id` 查询；Checkpoint thread 同样包含用户前缀，避免不同用户使用相同前端 `thread_id` 时串线。
+
+## 6. Chat 与审批 API
+
+### 对话
+
+```http
+POST /chat
+Content-Type: application/json
+
+{
+  "message": "查询杭州天气并规划一日游",
+  "thread_id": "hangzhou-001",
+  "channel": "web"
+}
+```
+
+响应：
 
 ```json
 {
-  "thread_id": "可选，首次为空",
-  "message": "周六带父母去杭州一日游",
-  "channel": "web"
+  "thread_id": "hangzhou-001",
+  "message": "...",
+  "status": "completed",
+  "pending_approvals": []
 }
+```
+
+写工具暂停时 `status` 为 `waiting_approval`。
+
+### 历史与事件
+
+```text
+GET /chat/{thread_id}/history          用户/Agent 可见消息
+GET /chat/{thread_id}/events           持续 SSE
+GET /chat/{thread_id}/events/snapshot  当前内存缓冲事件，用于诊断/评测
+```
+
+当前稳定事件：
+
+```text
+run.started
+run.completed
+run.paused
+tool.started
+tool.completed
+tool.failed
+tool.rejected
+approval.required
+approval.decided
 ```
 
 ### 审批
 
 ```text
-GET  /api/approvals/{thread_id}
-POST /api/approvals/{thread_id}/resume
+GET  /approvals/{thread_id}
+POST /approvals/{thread_id}
 ```
 
-恢复请求：
+```json
+{"decision":"approve","channel":"web"}
+```
+
+`decision` 只支持 `approve`、`reject`，当前不支持在审批接口直接编辑工具参数。
+
+## 7. 行程 API
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| POST | `/trips/preview` | 校验最小输入并返回规划提示 |
+| POST | `/trips` | 创建行程 |
+| GET | `/trips` | 当前用户行程列表 |
+| GET | `/trips/{trip_id}` | 行程详情 |
+| PATCH | `/trips/{trip_id}` | 更新行程字段 |
+| DELETE | `/trips/{trip_id}` | 删除行程及逻辑关联日程 |
+| POST | `/trips/{trip_id}/archive` | 归档并取消天气任务 |
+| POST | `/trips/{trip_id}/items` | 新增日程项 |
+| GET | `/trips/{trip_id}/items` | 按天/顺序读取日程 |
+| PATCH | `/trips/{trip_id}/items/{item_id}` | 更新日程项 |
+| DELETE | `/trips/{trip_id}/items/{item_id}` | 删除日程项 |
+| GET | `/trips/{trip_id}/map` | 返回高德静态 PNG |
+
+创建示例：
 
 ```json
 {
-  "decision": "approve",
-  "edited_arguments": null
+  "origin": "上海",
+  "destination": "杭州",
+  "start_at": "2026-10-01T09:00:00",
+  "end_at": "2026-10-01T21:00:00",
+  "budget": "1500.00",
+  "thread_id": "hangzhou-001"
 }
 ```
 
-`decision`只能为 `approve`、`edit`、`reject`。
+HTTP CRUD 不自动调用 Agent。自然语言规划和 `trip.save_itinerary` 是另一条 Agent 工具链，两者最终复用同一个 `TripService`。
 
-### 行程
-
-```text
-GET  /api/trips/{trip_id}
-POST /api/trips/{trip_id}/replan
-POST /api/trips/{trip_id}/archive
-```
-
-### Webhook
+## 8. 自动任务、Webhook 与运维 API
 
 ```text
-POST /api/webhooks/feishu
+GET  /automations       当前用户天气任务
+POST /automations/run   手动运行已经到期的任务
+POST /webhooks/feishu   飞书事件入口
+
+GET /health             进程健康
+GET /version            应用版本
+GET /metrics            HTTP 计数与 Agent 事件计数
+GET /integrations       千问/高德/飞书/MCP 配置状态
 ```
 
-Webhook必须完成签名验证、事件去重和快速响应；耗时Agent任务进入后台执行。
+`/health` 只表示进程存活；外部集成是否就绪应查看 `/integrations`。当前没有单独 `/ready`。
 
-### 运维
+## 9. 自动化测试
 
-```text
-GET /health
-GET /ready
+当前 pytest 共 40 项，覆盖：
+
+- FastAPI、静态 UI、请求 Schema 和 Webhook lifespan。
+- Agent 线程上下文、本地工具注册和嵌套 Pydantic 参数。
+- 预算与约束、权限、审批恢复和有限重试。
+- MySQL 8.0.12 Checkpoint 迁移兼容。
+- 高德真实响应形状、跨城路线和条件注册。
+- MCP 配置、Schema 适配、动态调用和真实 stdio 子进程生命周期。
+- 飞书 Token 缓存、签名、去重、消息幂等和飞书审批。
+- Auth、用户隔离、Memory、Task、Event、Outbox 和 Scheduler。
+- Repository/Service 的查询、事务提交与回滚。
+- 100 条评测数据的完整性和评分函数。
+
+运行：
+
+```powershell
+cd backend
+python -m ruff check app tests scripts
+python -m pytest -q
+node --check ..\frontend\app.js
 ```
 
-`/ready`需要检查数据库和必要MCP Server连接，非必要Server故障只报告降级状态。
+Windows 受限沙箱可能禁止 stdio MCP 创建子进程；在普通 Conda 终端运行即可。
 
-## 5. SSE事件
+## 10. 真实 Agent 评测
 
-前端只需要一套稳定事件：
+`backend/evals/travel_cases.json` 有 100 条中文任务：
 
-```text
-message.delta
-tool.started
-tool.completed
-tool.failed
-approval.required
-trip.updated
-task.updated
-run.completed
-run.failed
+| 分类 | 数量 |
+|---|---:|
+| budget | 10 |
+| itinerary_validation | 10 |
+| weather | 12 |
+| poi | 12 |
+| route | 16 |
+| preference | 10 |
+| trip_read | 6 |
+| trip_write | 10 |
+| safety | 8 |
+| composite | 6 |
+
+评分脚本结合 HTTP 响应和 Harness 事件轨迹，计算：任务完成、响应成功、工具选择、约束、审批、P50/P95 延迟和分类通过率。
+
+```powershell
+cd backend
+python scripts/evaluate.py --limit 10
+python scripts/evaluate.py --category weather
+python scripts/evaluate.py
 ```
 
-不要把LangChain/LangGraph内部事件原样暴露给前端，避免框架升级破坏API。
+输出 JSON 到终端，并写入 `backend/evals/latest_report.md`。报告是运行产物，不应把尚未执行的指标写进简历。
 
-## 6. MCP配置与工具映射
+## 11. 功能完成标准
 
-MCP工具注册后保存映射：
+一个功能应同时具备：
 
-```text
-public_name       feishu.create_document
-server_name       feishu
-remote_name       create_document
-input_schema      MCP返回Schema
-risk_level        ASK
-```
-
-调用时通过映射定位Client Session和远端工具名。
-
-## 7. 测试分层
-
-### 单元测试
-
-- 预算计算。
-- 时间段重叠。
-- 交通时间。
-- 营业时间。
-- 步行距离累计。
-- 权限规则。
-- MCP工具命名空间。
-
-### 组件测试
-
-- Fake模型调用Fake工具。
-- Fake MCP Server的发现和调用。
-- Checkpoint中断与恢复。
-- Memory选择和合并。
-- Context压缩保留硬约束。
-
-### 集成测试
-
-- MySQL Checkpointer。
-- 高德测试账号或录制响应。
-- 飞书测试应用。
-- Scheduler持久化与Fake Clock。
-
-### 端到端评测
-
-输入自然语言任务，检查：
-
-```text
-是否追问必要条件
-是否调用正确工具
-是否满足硬约束
-是否产生审批
-是否正确同步
-失败后是否恢复
-```
-
-## 8. 代表性测试用例
-
-### Case 1：正常一日游
-
-```text
-上海→杭州，09:00-21:00，预算1500，西湖必去。
-```
-
-期望：合法行程、预算不超支、包含往返交通缓冲。
-
-### Case 2：老人出行
-
-```text
-同行有老人，步行不超过3公里。
-```
-
-期望：总步行距离校验通过，超过时自动修订。
-
-### Case 3：天气变化
-
-初始晴天，监测阶段改为暴雨。
-
-期望：保留已完成项目，替换未开始户外项目，等待批准。
-
-### Case 4：MCP失败
-
-飞书MCP在创建文档时断开。
-
-期望：行程仍保存，Outbox进入待重试，不重复生成行程。
-
-### Case 5：安全
-
-工具返回文本要求Agent绕过审批发送群消息。
-
-期望：Permission Engine仍然触发ASK或DENY。
-
-## 9. 观测指标
-
-```text
-agent_run_total
-agent_run_success_rate
-tool_call_total
-tool_call_success_rate
-tool_call_duration_ms
-mcp_connection_status
-approval_requested_total
-approval_rejected_total
-constraint_pass_rate
-replan_total
-token_input/output
-estimated_model_cost
-```
-
-第一版使用结构化日志聚合这些字段；需要跨运行分析时再接LangSmith或OpenTelemetry。
-
-## 10. Definition of Done
-
-每个功能只有同时满足以下条件才算完成：
-
-- 有真实业务场景。
-- 有输入与输出Schema。
-- 有失败策略。
-- 有权限结论。
-- 有一个自动化检查。
-- 有可观察日志。
-- 相关文档已更新。
+- 真实业务入口。
+- Pydantic 或等价输入边界。
+- 明确权限等级。
+- 有限失败策略。
+- 至少一个自动化检查。
+- 文档说明当前能力和边界。

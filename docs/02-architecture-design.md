@@ -2,197 +2,230 @@
 
 ## 1. 架构目标
 
-架构需要同时满足三个目标：
+TravelMind 当前采用单体、单 Agent、本地运行架构，目标是：
 
-1. 当前以单 Agent完成真实业务闭环。
-2. Harness机制清晰，便于逐层学习和测试。
-3. 将来增加子 Agent时复用工具、权限、任务、记忆和 MCP连接。
+1. 完成真实出行业务闭环，而不是停留在模型对话。
+2. 让 Harness 的工具、权限、审批、记忆、任务和 MCP 机制可以分别学习和测试。
+3. 保持清晰的 Controller → Service → Repository 数据库分层。
+4. 将来需要多 Agent 时复用现有 Harness，而不是重写工具和基础设施。
 
 ## 2. 系统上下文
 
 ```mermaid
 flowchart LR
-    User["用户"] --> Web["Web"]
+    User["用户"] --> Web["原生 Web UI"]
     User --> Feishu["飞书机器人"]
     Web --> API["FastAPI"]
-    Feishu --> API
-    API --> Agent["TravelMind Agent"]
-    Agent --> AMap["高德/天气"]
-    Agent --> MCP["MCP Servers"]
-    Agent --> DB["MySQL"]
-    MCP --> FeishuAPI["飞书文档/日历/多维表格"]
+    Feishu --> Webhook["飞书 Webhook"]
+    Webhook --> API
+    API --> Runtime["LangChain Agent Runtime"]
+    Runtime --> Harness["TravelMind Harness"]
+    Harness --> AMap["高德 Web 服务"]
+    Harness --> MCP["MCP Client Manager"]
+    MCP --> Lark["飞书 MCP / lark-mcp"]
+    API --> Service["TripService"]
+    Service --> Repo["Repository"]
+    Repo --> DB["MySQL"]
+    Runtime --> Checkpoint["LangGraph MySQL Checkpoint"]
+    Harness --> DB
 ```
 
-## 3. 逻辑分层
+## 3. 代码分层
 
 ```text
-入口层       Web API、SSE、飞书 Webhook
-应用层       会话、行程、审批、任务 API
-Agent层      LangChain create_agent、Prompt、Skills
-Harness层    Tools、Permissions、Hooks、Context、Memory、Recovery、MCP
-Runtime层    LangGraph Checkpoint、Interrupt、Store、Streaming
-领域层       行程模型、约束校验、重规划规则
-基础设施层   MySQL、HTTP API、MCP Server、Scheduler
+入口层          frontend、api/routes、channels
+应用层          services、api/dependencies
+Agent 层        agent/runtime、prompts、state
+Harness 层      registry、permissions、middleware、memory、tasks、skills、scheduler
+领域层          domain/models、domain/constraints
+工具层          tools/*、mcp/tool_adapter
+基础设施层      SQLAlchemy models/repositories、checkpoint、outbox、MCP transport
 ```
 
-依赖方向始终由上向下；领域校验不依赖LLM。
+关键依赖规则：
 
-## 4. 核心运行流程
+- `api/routes` 只完成 HTTP 协议转换和调用，不直接查询 MySQL。
+- `services` 决定业务流程和事务边界。
+- `repositories` 只负责 SQLAlchemy 查询和写入，不提交事务、不调用 LLM。
+- `domain` 不依赖 FastAPI、LangChain、MCP 或数据库。
+- 本地工具和 MCP 工具都必须进入同一个 Harness 权限管线。
+- Checkpoint 保存 Agent 执行现场，业务表保存用户行程，两者不能互相代替。
+
+## 4. 应用组合与生命周期
+
+`backend/app/main.py` 是组合根。FastAPI lifespan 按以下顺序启动：
+
+```text
+创建/补齐业务表
+→ 创建 MemoryStore、TaskStore、SkillLoader、EventBroker
+→ 注册本地 Tool Registry
+→ 读取 config/mcp.json 并启动各 MCP Session
+→ 动态注册 MCP 工具
+→ 初始化 LangGraph MySQL Checkpoint
+→ 启动 Outbox Worker 和 Scheduler
+→ 首次请求时创建并缓存 Agent Runtime
+```
+
+退出时取消后台循环、关闭 MCP Session 和 Checkpoint 上下文。
+
+## 5. Agent 执行流程
 
 ```mermaid
 sequenceDiagram
     participant U as 用户
-    participant A as API
-    participant G as LangGraph
-    participant L as LangChain Agent
+    participant API as FastAPI
+    participant R as Agent Runtime
     participant H as Harness
     participant T as Tool/MCP
-    participant D as MySQL
+    participant C as MySQL Checkpoint
 
-    U->>A: 提交出行需求
-    A->>G: invoke(thread_id, user_id)
-    G->>L: 进入 Agent 节点
-    L->>H: 请求执行工具
-    H->>H: Schema与权限检查
-    H->>T: 调用本地或MCP工具
-    T-->>H: 结构化结果
-    H-->>L: 清洗后的工具结果
-    L-->>G: 候选行程
-    G->>H: 确定性约束校验
-    alt 校验失败
-        H-->>L: 约束错误
-        L-->>G: 修订行程
-    else 校验通过
-        G->>D: 保存Checkpoint
-        G-->>U: interrupt等待审批
-        U->>G: approve/edit/reject
-        G->>T: 同步飞书
-        G->>D: 保存任务与行程
+    U->>API: POST /chat(message, thread_id)
+    API->>R: chat(message, AgentContext)
+    R->>C: 读取线程状态
+    R->>H: 模型请求调用工具
+    H->>H: Pydantic 参数校验 + 权限判断
+    alt READ
+        H->>T: 最多两次执行
+        T-->>H: 结构化结果
+        H-->>R: Tool Result
+    else WRITE
+        H->>C: interrupt 保存待审批位置
+        R-->>API: waiting_approval
+        U->>API: approve / reject
+        API->>R: Command(resume=decision)
+        R->>H: 从原工具调用恢复
+        H->>T: 执行或返回 rejected
     end
+    R->>C: 保存最新消息和执行状态
+    R-->>U: 最终回复
 ```
 
-## 5. Agent Runtime
+当前没有额外手写的“Trip Lifecycle Graph”。`agent/graph.py` 仅保留说明；真正的模型—工具循环由 LangChain `create_agent` 构建的 LangGraph 执行，审批由 Harness 中的 `interrupt()` 注入。
 
-新项目使用 LangChain v1 的 `create_agent`：
+## 6. Agent Runtime
 
-- 负责模型调用和Tool Calling循环。
-- 使用 `state_schema` 保存当前Agent状态。
-- 使用 `context_schema` 注入用户、线程和权限上下文。
-- 使用Middleware装配动态Prompt、上下文压缩、权限和工具错误处理。
-- 使用 `ToolStrategy` 或 `ProviderStrategy` 输出结构化行程。
+`agent/runtime.py` 完成以下装配：
 
-不再使用旧的 `langgraph.prebuilt.create_react_agent`，也不复制框架内部Agent Loop。
+- 默认模型：OpenAI 兼容协议的千问 `qwen3.5-plus`，`temperature=0`。
+- LangChain v1 `create_agent`。
+- `AgentContext(user_id, thread_id, channel, agent_id)`。
+- 动态 Prompt：系统规则 + 当前用户偏好 + Skill 清单。
+- `SummarizationMiddleware`：达到 40 条消息时摘要，保留最近 20 条。
+- LangGraph Checkpointer：生产使用 MySQL，测试可使用内存实现。
+- Harness 工具适配为 LangChain `StructuredTool`。
 
-## 6. Trip Lifecycle Graph
+Runtime 对 API 暴露四项稳定能力：聊天、查询待审批项、恢复审批、读取可见聊天历史。
 
-外层 LangGraph只表达必须持久化的业务阶段：
+## 7. 数据与状态
 
-```text
-INTERACTING
-→ VALIDATING
-→ WAITING_APPROVAL
-→ SYNCHRONIZING
-→ MONITORING
-→ REPLANNING
-→ COMPLETED
-```
+### 运行上下文
 
-状态迁移：
-
-| 当前状态 | 事件 | 下一状态 |
-|---|---|---|
-| INTERACTING | Agent生成候选行程 | VALIDATING |
-| VALIDATING | 失败 | INTERACTING |
-| VALIDATING | 通过 | WAITING_APPROVAL |
-| WAITING_APPROVAL | 修改 | INTERACTING |
-| WAITING_APPROVAL | 拒绝 | INTERACTING或CANCELLED |
-| WAITING_APPROVAL | 批准 | SYNCHRONIZING |
-| SYNCHRONIZING | 完成 | MONITORING |
-| MONITORING | 环境变化 | REPLANNING |
-| REPLANNING | 新方案生成 | VALIDATING |
-| MONITORING | 行程结束 | COMPLETED |
-
-## 7. 状态设计
-
-### Runtime Context
-
-不会写入消息历史，用于本次调用：
+`AgentContext` 不写入用户消息：
 
 ```text
 user_id
 thread_id
 channel
-timezone
-permission_scope
-request_id
+agent_id = travel_agent
 ```
 
-### Agent State
+### Agent 执行状态
 
-由 LangGraph持久化：
+实际执行状态由 `create_agent` 的消息状态和 LangGraph Checkpoint 管理。`TravelAgentState` 是为未来外层业务图预留的类型，目前没有接入运行流。
+
+### MySQL 业务数据
 
 ```text
-messages
-trip_id
-trip_status
-requirements
-todo_items
-candidate_itinerary
-validation_errors
-pending_approval
-sync_status
+users               本地账号
+trips               行程主表
+itinerary_items     日程项，使用逻辑外键 trip_id
+user_preferences    结构化长期偏好
+harness_tasks       单 Agent 依赖任务
+webhook_events      飞书事件去重
+outbox_events       可靠 MCP 写入
+scheduled_jobs      24h/2h 天气复查
 ```
 
-### 长期存储
+LangGraph Checkpoint 表由 Checkpointer 自己创建，不在 `schema.sql` 的业务表清单内。
 
-- Trip：业务行程。
-- UserPreference：跨会话用户偏好。
-- Task：持久任务及依赖。
-- ToolAudit：工具审计。
-- Outbox：待发送或待同步事件。
+## 8. 行程数据流
 
-## 8. 数据一致性
-
-- Checkpoint负责恢复Agent执行现场，不代替业务表。
-- Trip表保存用户最终认可的业务结果。
-- 外部写入先保存Outbox，再调用飞书；失败时保留重试记录。
-- 同步操作使用 `trip_id + action + version` 作为幂等键。
-- Checkpoint、业务表和外部系统之间采用最终一致性，不做分布式事务。
-
-## 9. 部署架构
-
-第一版是单体应用：
+HTTP 行程接口严格遵循：
 
 ```text
-travelmind-api
-├── FastAPI
-├── LangChain/LangGraph
+trips.py Controller
+→ TripService
+→ TripRepository / ItineraryItemRepository
+→ SQLAlchemy ORM
+→ MySQL
+```
+
+`TripService` 拥有事务：
+
+- 创建行程时同时安排天气任务。
+- 完整行程与全部日程项一次提交。
+- 失败时统一 rollback。
+- 归档/删除时取消待执行天气任务。
+- 删除行程时应用层删除逻辑关联的日程项。
+
+## 9. 自动任务与外部一致性
+
+Scheduler 每分钟扫描最多 10 个到期任务，每项最多尝试 3 次：
+
+```text
+scheduled_jobs 到期
+→ 高德天气
+→ 同一 TravelMind Agent 生成建议
+→ 保存 weather + advice
+→ 若 thread_id 是 feishu:{chat_id}，发送主动通知
+```
+
+飞书消息使用 Outbox：
+
+```text
+生成固定幂等键
+→ 写入 outbox_events
+→ MCP call_tool
+→ 成功标记 completed
+→ 失败指数退避，最多 5 次
+```
+
+这是一致性边界：MySQL 不与飞书做分布式事务，外部结果采用最终一致性。
+
+## 10. 用户隔离
+
+- 匿名用户使用 `anonymous`。
+- 登录用户使用 `web:{user_id}`。
+- 飞书用户使用 `feishu:{open_id}`。
+- Web 会话通过 `web:{user_id}:{thread_id}` 命名。
+- 飞书群聊会话通过 `feishu:{chat_id}` 命名。
+- 行程 Repository 始终带 `owner_id` 查询条件。
+
+`AUTH_REQUIRED=true` 时，无 Bearer Token 的 Web API 请求返回 401；默认学习模式允许匿名访问。
+
+## 11. 本地部署形态
+
+```text
+一个 FastAPI 进程
+├── Agent Runtime
 ├── MCP Manager
-└── Scheduler（后续按真实定时需求选择实现）
+├── Scheduler
+├── Outbox Worker
+└── 原生静态前端
 
-postgres
-frontend
+一个 MySQL 实例
+外部：千问、高德、可选飞书 MCP
 ```
 
-Docker Compose负责本地启动。第一版不加入Redis、消息队列和微服务。多实例部署前，再把Scheduler和后台执行从API进程中拆出。
+项目明确不提供 Docker Compose、CI/CD 和云部署。因为当前只用于本地演示，也没有引入 Redis、消息队列或独立 Worker。
 
-## 10. 多 Agent 演进
+## 12. 多 Agent 演进边界
 
-单 Agent出现以下信号后再拆分：
+当前不实现多 Agent。只有出现可测量问题时再拆分，例如工具选择准确率下降或确实需要并行专业任务。未来可增加 Supervisor/Planner/Route Agent，但继续共享：
 
-- 工具数量让模型选择准确率明显下降。
-- 上下文压缩仍无法控制Token成本。
-- 路线、风险等任务需要真正并行且相互隔离。
-- 专业任务需要独立模型、权限或评测集。
+- Tool Registry 与 Permission Engine。
+- MCP Manager。
+- Memory、Task 和 Skill。
+- Checkpoint、Outbox 和业务数据库。
 
-可能的未来拓扑：
-
-```text
-Supervisor
-├── Planner Agent
-├── Route Agent
-├── Risk Agent
-└── Collaboration Agent
-```
-
-新增的只是Agent注册、上下文隔离、任务分派和Agent间协议；Harness核心模块保持不变。
+因此当前 Harness 是可扩展基础，而不是已经存在的多 Agent 框架。

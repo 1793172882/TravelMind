@@ -1,331 +1,218 @@
-# 实现流程与里程碑
+# 实现状态与演进记录
 
-## 1. 实施原则
+## 1. 文档用途
 
-- 每个阶段必须留下一个可运行、可演示的结果。
-- 一次只新增一个Harness机制，观察它解决的问题。
-- 先用假数据验证Agent流程，再接真实外部API。
-- 每个非平凡阶段至少有一个自动化测试。
-- 未完成当前阶段验收前，不进入下一阶段。
+本项目的核心开发阶段已经完成。这份文档不再把已存在代码写成“未来计划”，而是说明每个阶段解决了什么问题、落在哪些文件、如何验证，以及当前仍有哪些边界。
 
-## 2. 阶段总览
+## 2. 总体状态
 
-| 阶段 | 交付结果 | 主要学习主题 |
+| 阶段 | 状态 | 当前结果 |
 |---|---|---|
-| 0 | 工程可运行 | Python工程、配置、测试 |
-| 1 | 最小Agent对话 | LLM、Messages、Tool Calling |
-| 2 | 真实出行工具 | Tool Schema、异步HTTP、结构化结果 |
-| 3 | 可执行行程 | Structured Output、确定性校验 |
-| 4 | 权限与恢复 | Middleware、Interrupt、Checkpoint |
-| 5 | 完整Harness | Todo、Skill、Compact、Memory、Recovery |
-| 6 | MCP Host | MCP Client、Tool Discovery、连接生命周期 |
-| 7 | 飞书协作 | Webhook、文档、表格、日历、审批 |
-| 8 | 长运行任务 | Background、Cron、Outbox、重规划 |
-| 9 | 产品化 | 前端、评测、观测、部署、简历材料 |
+| 0. 工程与 FastAPI | 完成 | Python 3.12、配置、健康检查、Swagger、静态页面 |
+| 1. 最小单 Agent | 完成 | 千问、`create_agent`、预算工具、`/chat` |
+| 2. 真实出行工具 | 完成 | 高德地理编码、POI、天气、三种路线、静态地图 |
+| 3. 行程与约束 | 完成 | 领域模型、确定性校验、单事务保存、CRUD |
+| 4. 权限与恢复 | 完成 | READ/WRITE/DANGEROUS、interrupt、MySQL Checkpoint |
+| 5. Harness 能力 | 完成 | Memory、Task、Skill、摘要、有限重试、执行事件 |
+| 6. MCP Host | 完成 | stdio、Streamable HTTP、动态工具发现、故障隔离 |
+| 7. 飞书协作 | 代码完成 | Webhook、审批回复、文档/日历/消息；待真实环境验收 |
+| 8. 自动任务 | 完成 | 24h/2h 天气复查、Agent 建议、Outbox、飞书通知 |
+| 9. 产品与评测 | 完成 | 产品级前端、100 条评测、40 项自动化检查 |
+| 部署/多 Agent | 明确排除 | 当前简历项目不做 Docker、CI/CD、云部署、多 Agent |
 
-## 3. 阶段0：工程骨架
+## 3. 阶段 0：工程与 FastAPI
 
-### 目标
+### 已实现
 
-建立最小Python后端，不创建尚未使用的模块。
+- `backend/pyproject.toml` 管理运行和开发依赖。
+- `backend/app/config.py` 使用 Pydantic Settings 读取根目录 `.env`。
+- `backend/app/main.py` 创建 FastAPI、挂载路由和 `/ui` 静态页面。
+- `/health`、`/version`、`/metrics`、`/integrations`。
+- Ruff、pytest 配置和 `.gitignore` 密钥隔离。
 
-### 实现
+### 验证
 
-- 创建 `backend/pyproject.toml`。
-- 创建FastAPI健康检查 `/health`。
-- 使用Pydantic Settings读取环境变量。
-- 配置Ruff和pytest。
-- 增加 `.env.example`，不提交真实密钥。
-
-### 验收
-
-```text
-服务可启动
-GET /health 返回200
-pytest可运行
-ruff check通过
+```powershell
+cd backend
+python -m uvicorn app.main:app --reload
+python -m pytest tests/test_health.py -q
 ```
 
-### 学习问题
+### 学习重点
 
-- 为什么密钥不能进入Prompt和日志？
-- 什么是应用lifespan？
+应用组合根、lifespan、Router 汇总、Depends 依赖注入、Pydantic 请求/响应模型。
 
-## 4. 阶段1：最小单Agent
+## 4. 阶段 1：最小单 Agent
 
-### 目标
+### 已实现
 
-理解Agent最小循环，而不是先做完整产品。
+- `agent/runtime.py` 使用 LangChain v1 `create_agent`。
+- 默认接入千问 OpenAI 兼容接口。
+- `budget.calculate_trip_cost` 使用 Decimal 做确定性计算。
+- `/chat` 接收 `message`、`thread_id` 和 `channel`。
+- Fake Model 自动化测试模型—工具循环。
 
-### 实现
+### 验收用例
 
-- 使用LangChain v1 `create_agent`。
-- 接入一个可配置模型。
-- 添加一个纯函数工具 `calculate_trip_cost`。
-- 提供 `/chat` 接口。
-- 打印或记录模型消息、Tool Call和Tool Result。
+> 交通 200 元、住宿 500 元、餐饮 300 元、活动 0 元，预算 1000 元。
 
-### 验收场景
+Agent 应选择预算工具并给出总计 1000、余额 0，而不是自己心算。
 
-用户问：
+## 5. 阶段 2：真实出行数据
 
-> 交通200元，酒店500元，餐饮300元，总预算1000元，是否超支？
+### 已实现
 
-Agent必须调用计算工具，并回答未超支，剩余0元。
+| 工具 | 文件 | 输出 |
+|---|---|---|
+| 地理编码 | `tools/amap.py` | 地址、坐标、行政区、来源、时间 |
+| POI | `tools/amap.py` | 名称、地址、坐标、类型 |
+| 路线 | `tools/amap.py` | 步行/驾车/公交时长、距离、步骤 |
+| 天气 | `tools/weather.py` | 实况或预报、温度、风力、报告时间 |
+| 静态地图 | `tools/amap.py` | 服务端代理 PNG，Key 不暴露给浏览器 |
 
-### 自动化检查
+外部响应被压缩为模型需要的字段；缺少高德 Key 时不注册 Agent 高德工具。
 
-- 工具金额计算测试。
-- 模型可用Fake Chat Model替代，测试工具调用流程。
+### 验证
 
-### 学习问题
+`tests/test_amap_tools.py` 使用 Mock HTTP 响应验证高德真实返回结构，无需测试时访问网络。
 
-- LLM和Agent有什么区别？
-- Tool描述为什么会影响工具选择？
-- Tool Result为什么必须回到消息序列？
+## 6. 阶段 3：领域约束与持久化
 
-## 5. 阶段2：地点、天气和路线工具
+### 已实现
 
-当前状态：已使用高德 Web 服务实现地理编码、POI、当前/未来天气、步行/驾车/公交路线，并完成无网络 Mock 测试。配置 `AMAP_API_KEY` 后由 Harness 自动注册给Agent。
+- `TripRequirement`、`Itinerary`、`ItineraryItem` Pydantic 领域模型。
+- `validate_itinerary` 检查时间范围、时间重叠、预算、步行限制、必去地点。
+- `trip.save_itinerary` 先校验，再用一个 MySQL 事务保存行程和全部日程。
+- Controller → Service → Repository → ORM 分层。
+- Web API 支持行程和日程完整 CRUD、归档及地图。
 
-### 目标
+### 未实现的约束
 
-让Agent通过Harness观察真实世界。
+营业时间、景点关闭、路线交通缓冲尚未进入确定性引擎，不应在演示中声称已经支持。
 
-### 实现顺序
+## 7. 阶段 4：权限、审批与 Checkpoint
 
-1. Fake天气工具。
-2. Fake地点搜索工具。
-3. Fake路线工具。
-4. 将Fake实现替换为高德等官方接口。
-5. 将外部响应转换为内部Pydantic模型。
+### 已实现
 
-### 工具约束
+- 每个工具声明 `RiskLevel`。
+- READ 自动执行，WRITE 进入 `interrupt()`，DANGEROUS 拒绝。
+- `GET /approvals/{thread_id}` 查询待审批工具。
+- `POST /approvals/{thread_id}` 批准或拒绝并恢复。
+- LangGraph MySQL Checkpoint 支持跨请求、跨重启恢复。
+- 自定义 Checkpointer 兼容 MySQL 8.0.12 的 JSON 限制。
 
-- 输入和输出都有Schema。
-- 网络请求有超时。
-- 不返回无关原始字段。
-- 返回来源、查询时间和错误类型。
-- 同类独立查询可以并行。
+### 验证
 
-### 验收
+`tests/test_harness.py` 覆盖写工具中断和恢复、权限决策、重试和 Checkpoint 迁移。
 
-Agent能够查询两个地点和路线，输出数据来自工具而非模型臆测。
+## 8. 阶段 5：Harness 能力
 
-### 学习问题
+### Memory
 
-- 工具应当多大粒度？
-- 哪些错误应重试，哪些应交回模型？
+用户明确偏好进入 MySQL，动态 Prompt 每轮读取；写入本身需要审批。
 
-## 6. 阶段3：结构化行程与约束引擎
+### Task
 
-### 目标
+支持创建、列出和完成带 `blocked_by` 的持久任务。当前单 Agent 执行全部任务。
 
-区分LLM推理和确定性业务规则。
+### Skill
 
-### 实现
+启动只加载 `name/description`，需要时调用 `skill.load` 读取完整内容。当前有预算旅行和家庭旅行两个 Skill。
 
-- 定义 `TripRequirement`、`Itinerary`、`ItineraryItem`。
-- 使用LangChain结构化输出生成候选行程。
-- 实现普通Python约束校验：
-  - 时间重叠。
-  - 路线时间是否足够。
-  - 总预算。
-  - 总步行距离。
-  - 营业时间。
-- 校验失败时将明确错误返回Agent修订。
+### Context
 
-### 验收
+LangChain `SummarizationMiddleware` 在长会话中生成摘要；另有确定性消息裁剪辅助函数。
 
-给出故意冲突的候选行程，约束引擎必须稳定发现问题；不调用LLM也能完成校验。
+### Recovery 与事件
 
-### 自动化检查
+READ 工具的超时/连接错误最多重试两次；EventBroker 为前端和评测记录 run/tool/approval 事件。
 
-建立一张参数化测试表，覆盖：
+## 9. 阶段 6：MCP Host
 
-- 正常行程。
-- 时间重叠。
-- 预算超支。
-- 步行超限。
-- 地点关闭。
+### 已实现
 
-### 学习问题
+- Pydantic 验证 `mcp.json`。
+- stdio 和 Streamable HTTP Client。
+- 每个 Server 独立 Session 与清理栈。
+- `initialize`、`list_tools`、`call_tool`。
+- JSON Schema 转 Pydantic 参数模型。
+- 动态命名空间和 Harness 风险识别。
+- 单 Server 失败隔离。
+- Fake stdio MCP 的真实子进程生命周期测试。
 
-- 为什么数学和时间规则不应交给模型？
-- Structured Output失败时如何恢复？
+### 当前边界
 
-## 7. 阶段4：权限、审批和Checkpoint
+没有运行中自动热重连；MCP Server 在应用启动时建立连接。
 
-### 目标
+## 10. 阶段 7：飞书协作
 
-让Agent可以安全中断并恢复。
+### 代码已完成
 
-### 实现
+- 入站 Webhook 验证、文本解析、用户/群聊映射和 MySQL 去重。
+- 飞书中用“批准/拒绝”恢复 Agent。
+- 官方远程 MCP tenant token 缓存与允许工具白名单。
+- 官方 `lark-mcp` 消息、docx 文档和日历工具。
+- 普通回复和天气通知使用幂等 Outbox。
 
-- 为工具标记 `ALLOW/ASK/DENY`。
-- 使用LangChain Middleware包裹工具调用。
-- 使用LangGraph Checkpointer保存线程状态。
-- 对模拟的 `calendar.create_event` 使用 `interrupt()`。
-- 提供批准、修改、拒绝接口。
-- 重启进程后用相同 `thread_id` 恢复。
+### 仍需人工验收
 
-### 验收
+1. 飞书开放平台为应用增加消息、文档和日历权限。
+2. 发布应用版本并配置事件订阅。
+3. 提供公网 HTTPS `/webhooks/feishu`。
+4. 从飞书完成一次“提问 → 审批 → 写文档/日历 → 回复”。
+
+这属于外部环境配置，不需要继续增加项目模块。
+
+## 11. 阶段 8：自动任务
+
+### 已实现
+
+- 行程创建/开始时间变化时维护 24h、2h 天气任务。
+- Scheduler 每分钟扫描到期任务。
+- 高德天气失败最多尝试三次。
+- 同一 Agent 根据真实天气生成调整建议。
+- 结果存入 `scheduled_jobs.result`。
+- 飞书来源行程主动发送建议，消息失败进入 Outbox。
+- `GET /automations` 查看任务，`POST /automations/run` 手动触发到期扫描。
+
+当前只生成建议，不自动修改行程。
+
+## 12. 阶段 9：产品与评测
+
+### Web 产品
+
+- 仪表盘与能力状态。
+- 登录/注册。
+- Agent 聊天、历史恢复、SSE 运行进度、审批卡片。
+- 行程搜索、状态筛选、创建、编辑、归档、删除。
+- 日程项管理和高德静态地图。
+- 响应式布局和基本无障碍标签。
+
+### 评测
+
+100 条用例分类：
 
 ```text
-Agent请求创建日历
-→ 系统暂停
-→ 数据库存在Checkpoint
-→ 重启服务
-→ 用户批准
-→ 从原位置继续
+预算 10            约束 10          天气 12
+POI 12             路线 16          偏好 10
+行程读取 6         行程写入 10      安全 8
+复合任务 6
 ```
 
-### 学习问题
+评测脚本读取 `/chat/{thread_id}/events/snapshot`，因此能够检查实际工具轨迹，不再只判断回复非空。
 
-- Checkpoint与业务数据库有什么区别？
-- 为什么“模型想调用”不等于“系统允许调用”？
+## 13. 当前 Definition of Done
 
-## 8. 阶段5：完整Harness
+本地代码完成标准：
 
-当前状态：Memory、Task 已使用 MySQL 持久化，Skill 目录通过 `skill.load` 按需读取，动态 Prompt 注入偏好，长会话使用 LangChain 官方摘要中间件。
+- Ruff 通过。
+- `node --check frontend/app.js` 通过。
+- pytest 当前 40 项通过。
+- `.env`、`config/mcp.json` 没有进入 Git。
+- README、API、数据表和功能边界与代码一致。
 
-### 目标
+简历展示前还需：
 
-参考 `learn-claude-code`，逐个加入单Agent需要的Harness机制。
-
-### 5.1 Todo与Task
-
-- Agent维护当前Todo。
-- 长任务保存到Task表。
-- Task支持 `blocked_by`。
-- 当前仍由同一个Agent执行全部任务。
-
-### 5.2 Skill Loading
-
-- Skill目录保存家庭出行、预算旅行等知识。
-- 启动时只加载Skill清单。
-- 模型需要时再加载完整内容。
-
-### 5.3 Context Compact
-
-- 先裁剪工具结果。
-- 再生成结构化摘要。
-- 记录压缩前后Token变化。
-
-### 5.4 Memory
-
-- 从对话提取明确用户偏好。
-- 让用户确认敏感或重要偏好。
-- 新会话按需注入相关记忆。
-
-### 5.5 Error Recovery
-
-- 模拟超时、限流、格式错误和上下文过长。
-- 验证重试次数有上限。
-- 记录最终采取的恢复策略。
-
-### 验收
-
-运行一个至少经过5轮工具调用的任务，确认任务、记忆、压缩、错误恢复和审计都能观察到。
-
-## 9. 阶段6：内置MCP Client
-
-### 目标
-
-让Harness无需修改Agent Loop即可接入外部能力。
-
-### 实现
-
-1. 编写最小测试MCP Server，暴露 `echo` 和 `get_weather`。
-2. 使用官方MCP Python SDK建立stdio连接。
-3. 执行 `initialize` 和 `list_tools`。
-4. 将MCP Tool转换并注册到Tool Registry。
-5. 通过Agent调用 `call_tool`。
-6. 增加Streamable HTTP连接。
-7. 增加每个Server独立的重连和清理。
-
-### 验收
-
-- 修改 `mcp.json` 即可启用或停用Server。
-- 增加MCP工具不修改Agent Runtime。
-- 一个Server断开不影响本地工具。
-- MCP工具仍受Permission Engine控制。
-
-### 学习问题
-
-- MCP Host、Client和Server分别是什么？
-- 为什么每个Server需要独立Session？
-- MCP Tool与普通LangChain Tool如何统一？
-
-## 10. 阶段7：飞书协作
-
-当前状态：Webhook 验证、持久去重、消息回复、审批恢复和官方 lark-mcp 文档/日历/消息工具已接通；真实验收需要飞书应用权限与公网 HTTPS 回调。
-
-### 实现顺序
-
-1. 接收并验证飞书Webhook。
-2. 将飞书用户映射到系统用户。
-3. 通过飞书MCP创建行程文档草稿。
-4. 写入多维表格。
-5. 经审批后创建日历事件。
-6. 写操作增加幂等键和Outbox。
-
-### 验收
-
-从飞书发起需求，系统完成规划、审批、文档创建和日历写入；重复回调不会创建重复内容。
-
-## 11. 阶段8：后台任务与定时重规划
-
-当前状态：已使用 MySQL `scheduled_jobs` 实现出发前 24/2 小时天气复查，调用同一个 Agent 生成调整建议；飞书回复失败通过 MySQL Outbox 幂等重试。
-
-### 实现
-
-- Scheduler使用MySQL持久化Job；具体调度库在进入本阶段时再选择。
-- 行程前24小时和2小时检查天气。
-- 发现明显变化后创建重规划Task。
-- 生成替代方案后等待用户审批。
-- 失败通知进入Outbox并重试。
-
-### 验收
-
-通过Fake Clock模拟时间推进，不需要真正等待24小时；任务触发、重规划和通知完整可测。
-
-## 12. 阶段9：产品化与简历交付
-
-### 产品交付
-
-- 原生响应式聊天界面、行程时间轴和高德静态地图。
-- SSE展示 Agent、工具和审批事件。
-- 本地账号、服务端历史与用户数据隔离。
-
-### 工程交付
-
-- 20个代表性评测任务及成功率、延迟报告。
-- 架构图、演示视频和部署说明。
-- 关键指标：成功率、约束满足率、工具成功率、成本、延迟。
-
-### 简历交付
-
-形成：
-
-- 一段项目描述。
-- 3到5条量化技术亮点。
-- 一份5分钟项目讲解。
-- 一套架构与故障处理面试题。
-
-## 13. 每阶段提交格式
-
-建议每阶段使用一个小提交：
-
-```text
-feat(agent): add minimal tool-calling loop
-feat(tools): add structured route search
-feat(harness): add permission middleware
-feat(mcp): discover and register server tools
-```
-
-每个提交同时更新：
-
-- 对应文档。
-- 一个可执行演示。
-- 最小自动化测试。
+- 跑一次真实 100 条评测并保存报告。
+- 录制或截图一次飞书真实闭环。
+- 只引用真实评测数字，不写未经验证的成功率。

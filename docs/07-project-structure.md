@@ -1,71 +1,85 @@
 # 项目结构与模块职责
 
-这份文档回答三个问题：代码放在哪里、这个模块负责什么、应该在哪个阶段实现。实际完成状态以根目录 README 的“当前已实现”和“当前边界”为准。
-
-## 1. 完整目录树
+## 1. 当前目录树
 
 ```text
 TravelMind/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
+│   │   ├── config.py
 │   │   ├── api/
 │   │   │   ├── router.py
-│   │   │   └── routes/
-│   │   │       ├── health.py
+│   │   │   ├── dependencies.py
+│   │   │   ├── routes/
+│   │   │   │   ├── health.py
+│   │   │   │   ├── auth.py
+│   │   │   │   ├── chat.py
+│   │   │   │   ├── approvals.py
+│   │   │   │   ├── trips.py
+│   │   │   │   ├── automations.py
+│   │   │   │   └── webhooks.py
+│   │   │   └── schemas/
+│   │   │       ├── auth.py
 │   │   │       ├── chat.py
-│   │   │       ├── approvals.py
-│   │   │       ├── trips.py
-│   │   │       └── webhooks.py
+│   │   │       └── trips.py
+│   │   ├── services/
+│   │   │   ├── auth.py
+│   │   │   └── trip.py
+│   │   ├── domain/
+│   │   │   ├── models.py
+│   │   │   └── constraints.py
 │   │   ├── agent/
 │   │   │   ├── runtime.py
-│   │   │   ├── graph.py
+│   │   │   ├── prompts.py
 │   │   │   ├── state.py
-│   │   │   └── prompts.py
+│   │   │   └── graph.py
 │   │   ├── harness/
 │   │   │   ├── tool_registry.py
 │   │   │   ├── permissions.py
 │   │   │   ├── middleware.py
+│   │   │   ├── runtime_context.py
 │   │   │   ├── context.py
 │   │   │   ├── memory.py
 │   │   │   ├── tasks.py
 │   │   │   ├── skills.py
 │   │   │   ├── recovery.py
+│   │   │   ├── events.py
 │   │   │   └── scheduler.py
-│   │   ├── mcp/
-│   │   │   ├── manager.py
-│   │   │   ├── config.py
-│   │   │   └── tool_adapter.py
-│   │   ├── domain/
-│   │   │   ├── models.py
-│   │   │   └── constraints.py
 │   │   ├── tools/
 │   │   │   ├── budget.py
+│   │   │   ├── itinerary.py
+│   │   │   ├── trips.py
 │   │   │   ├── amap.py
 │   │   │   └── weather.py
+│   │   ├── mcp/
+│   │   │   ├── config.py
+│   │   │   ├── manager.py
+│   │   │   ├── tool_adapter.py
+│   │   │   └── feishu_auth.py
 │   │   ├── channels/
 │   │   │   └── feishu.py
 │   │   └── infrastructure/
 │   │       ├── database.py
-│   │       ├── repositories.py
-│   │       └── outbox.py
+│   │       ├── checkpoint.py
+│   │       ├── outbox.py
+│   │       ├── models/          # 一张业务表一个 ORM 文件
+│   │       └── repositories/    # trip、itinerary_item
+│   ├── evals/travel_cases.json
+│   ├── scripts/
+│   │   ├── check_mcp.py
+│   │   └── evaluate.py
 │   ├── tests/
-│   │   ├── unit/
-│   │   ├── integration/
-│   │   ├── e2e/
-│   │   └── test_health.py
+│   ├── schema.sql
 │   └── pyproject.toml
 ├── frontend/
-│   └── src/
-│       ├── api/
-│       ├── components/
-│       └── features/
-│           ├── chat/
-│           ├── trips/
-│           └── approvals/
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
+├── config/mcp.example.json
 ├── skills/
-├── config/
-│   └── mcp.example.json
+│   ├── budget-travel/SKILL.md
+│   └── family-travel/SKILL.md
 ├── docs/
 ├── .env.example
 ├── .gitignore
@@ -74,475 +88,315 @@ TravelMind/
 
 ## 2. 依赖规则
 
-代码依赖必须遵守：
-
 ```text
 API / Channel
       ↓
-Agent Runtime / Application Flow
+Service 或 Agent Runtime
       ↓
-Harness ─────────→ MCP
-      ↓              ↓
-Domain          Infrastructure
+Harness / Domain
+      ↓
+Repository / Tool / MCP
+      ↓
+MySQL / 外部服务
 ```
 
-更具体的规则：
+- Controller 不直接使用 SQLAlchemy Engine 或 Session 查询。
+- Service 控制业务流程、commit 和 rollback。
+- Repository 不 commit，只操作 ORM。
+- Domain 不依赖框架和外部服务。
+- Agent 不直接绕过 Harness 调用 MCP。
+- MCP Adapter 不决定业务权限，Risk Level 仍由 Harness 执行。
 
-- `domain` 不得导入 FastAPI、LangChain、LangGraph、MCP或数据库客户端。
-- `tools` 可以调用外部API，但返回 `domain` 模型或精简字典。
-- `agent` 可以使用 `harness`、`domain` 和 `tools`。
-- `api` 只负责协议转换，不写Prompt、约束规则或MCP连接逻辑。
-- `mcp` 不直接决定权限；它只连接Server和执行调用。
-- `harness.permissions` 是所有本地工具和MCP工具的统一安全入口。
-- `infrastructure` 实现数据库和外部持久化，不决定业务流程。
-
-## 3. 根目录
+## 3. 根目录文件
 
 ### `README.md`
 
-用途：新人入口、启动命令、文档索引和当前项目状态。
-
-每完成一个里程碑，应更新“当前可运行能力”，不要把未来功能写成已经完成。
+项目入口：当前能力、安装、配置、启动、API、测试、边界和文档导航。
 
 ### `.env.example`
 
-用途：列出需要的环境变量名称和注释，不保存真实值。
-
-未来可能包括：
-
-```text
-MODEL_PROVIDER
-MODEL_NAME
-DASHSCOPE_API_KEY
-DATABASE_URL
-AMAP_API_KEY
-FEISHU_APP_ID
-FEISHU_APP_SECRET
-```
-
-只有真正使用某项集成时才增加变量。
+列出 MySQL、千问、高德、鉴权和飞书配置名。真实 `.env` 被 `.gitignore` 排除。
 
 ### `config/mcp.example.json`
 
-用途：展示可配置MCP Server格式。
+提供 Fake MCP、飞书远程 MCP、官方 `lark-mcp` 三类配置示例。本地启用配置复制为 `config/mcp.json`，该文件不会提交。
 
-只保存：Server名称、Transport、命令或URL、环境变量名称。禁止保存Token。
+## 4. 应用组合
 
-## 4. `backend/app/main.py`
+### `app/main.py`
 
-这是应用组合根，只负责：
+唯一组合根：
 
-- 创建FastAPI实例。
-- 注册路由。
-- 后续注册lifespan。
-- lifespan中启动数据库、MCP Manager和Scheduler。
-- 退出时关闭连接。
+- 创建 FastAPI 并注册 `api_router`。
+- 挂载 `/ui` 静态页面。
+- lifespan 创建业务表、Store、Registry、MCP、Checkpoint、Scheduler 和 Outbox Worker。
+- 定义天气复查调用 Agent 和飞书通知的组合逻辑。
+- 记录请求 ID、状态码和耗时。
 
-禁止放入：
+这里可以组合对象，但不应加入新的行程 SQL 或大段 Prompt。
 
-- 业务规则。
-- Prompt。
-- 工具实现。
-- 数据库查询。
+### `app/config.py`
 
-当前已经能够启动并提供 `/health`。
+Pydantic Settings；仓库根目录由 `Path(__file__).parents[2]` 计算，所以移动工作目录不会改变 `.env`、`skills`、`config/mcp.json` 的定位。
 
-## 5. API层
+## 5. API 层
 
 ### `api/router.py`
 
-集中注册所有FastAPI Router。新增业务接口时在这里挂载，不在 `main.py` 中不断堆接口。
+集中注册全部 Router。项目 API 没有 `/api` 前缀。
+
+### `api/dependencies.py`
+
+组合请求级数据库 Session、当前用户、TripService 和共享 Agent Runtime。身份隔离也在这里进入 Service/Runtime。
 
 ### `api/routes/health.py`
 
-当前已实现。用于进程存活检查，不访问外部服务。
+`/health`、`/version`、`/metrics`、`/integrations`。
 
-未来增加 `/ready` 时才检查数据库和必要MCP连接。
+### `api/routes/auth.py`
+
+注册、登录、查询当前身份；只调用 `AuthService`。
 
 ### `api/routes/chat.py`
 
-阶段1和阶段9实现。
-
-职责：
-
-- 接收用户消息、`thread_id`和渠道信息。
-- 创建 `AgentContext`。
-- 调用Agent Runtime。
-- 将流式事件转换为稳定SSE协议。
-
-禁止直接调用高德或飞书。
+聊天、历史、SSE 和事件快照。构造 `AgentContext` 后调用 Runtime，不直接调用高德、数据库或 MCP。
 
 ### `api/routes/approvals.py`
 
-阶段4实现。
-
-职责：
-
-- 查询当前等待审批的操作。
-- 接收 `approve/edit/reject`。
-- 构造LangGraph `Command(resume=...)`。
-- 使用原 `thread_id` 恢复执行。
+查询 LangGraph interrupt，并以 approve/reject 恢复相同线程。
 
 ### `api/routes/trips.py`
 
-阶段3和阶段8实现。
+行程和日程 CRUD、归档、静态地图。数据库操作全部通过 `TripService`；地图通过高德工具生成。
 
-职责：查询已保存行程、触发重规划、归档行程。具体校验放在Domain，持久化放在Repository。
+### `api/routes/automations.py`
+
+查询当前用户 Scheduler Job，并可手动运行已到期任务。
 
 ### `api/routes/webhooks.py`
 
-阶段7实现。
+飞书入站边界：验证、去重、后台执行 Agent、处理飞书审批回复，并通过 Outbox 回复消息。
 
-职责：
+### `api/schemas/*`
 
-- 验证飞书回调签名。
-- 处理URL验证。
-- 通过事件ID去重。
-- 将消息交给Channel Adapter。
-- 快速返回，耗时Agent执行进入后台。
+HTTP 信任边界。负责字符串长度、金额非负、状态枚举、请求/响应序列化。
 
-## 6. Agent层
+## 6. Service 与数据访问
 
-### `agent/runtime.py`
+### `services/auth.py`
 
-阶段1开始实现，是单Agent的装配位置。
+PBKDF2 密码哈希、HMAC Token、注册登录、Token 解析和身份模型。
 
-负责调用LangChain v1 `create_agent`，注入：
+### `services/trip.py`
 
-```text
-model
-tools
-system_prompt
-middleware
-state_schema
-context_schema
-response_format
-checkpointer/store
-```
+行程业务和事务边界：
 
-这里不手写另一套模型—工具 `while` 循环。
+- 创建、查询、更新、删除、归档。
+- 日程项 CRUD。
+- 行程与全部日程一次提交。
+- 创建/修改开始时间时更新天气 Job。
+- 删除/归档时取消 Job。
 
-未来多Agent时，保留当前 `travel_agent`，再增加Agent Registry；各Agent仍复用Harness。
+### `infrastructure/repositories/trip.py`
 
-### `agent/graph.py`
+所有查询都包含 `owner_id`，保证用户隔离。
 
-阶段4开始实现。
+### `infrastructure/repositories/itinerary_item.py`
 
-负责出行任务外层生命周期：
+按 `trip_id/day_number/sort_order` 查询，处理日程增删。
+
+### `infrastructure/models/*`
+
+一张业务表一个 SQLAlchemy 类：
 
 ```text
-Agent交互
-→ 约束校验
-→ 人工审批
-→ 外部同步
-→ 定时监测
-→ 动态重规划
+user.py                 users
+trip.py                 trips
+itinerary_item.py       itinerary_items
+user_preference.py      user_preferences
+harness_task.py         harness_tasks
+webhook_event.py        webhook_events
+outbox_event.py         outbox_events
+scheduled_job.py        scheduled_jobs
 ```
 
-不要把模型的每一次推理写成Graph Node。Graph只表达需要持久化、审批或恢复的业务边界。
-
-### `agent/state.py`
-
-已经提供基础结构：
-
-- `AgentContext`：本次调用环境，不作为对话消息保存。
-- `TravelAgentState`：LangGraph需要Checkpoint的执行状态。
-
-未来新增字段前先问：它是执行状态、业务数据还是长期记忆？业务数据应进入Trip表，长期偏好应进入Memory Store。
-
-### `agent/prompts.py`
-
-阶段1和阶段5实现。
-
-负责动态组合：
-
-```text
-稳定安全规则
-出行Agent角色
-当前时间与地点
-用户偏好摘要
-已加载Skill
-可用工具提示
-```
-
-Prompt不保存任务状态，也不拼入密钥。
-
-## 7. Harness层
-
-### `harness/tool_registry.py`
-
-阶段1和阶段6实现。
-
-这是工具唯一目录，统一管理：
-
-- 本地Python工具。
-- REST API工具。
-- MCP动态发现工具。
-- 工具名称空间。
-- Risk Level和可用状态。
-- 根据 `agent_id` 过滤工具。
-
-模型只看到经过Registry和Permission过滤后的工具。
-
-### `harness/permissions.py`
-
-阶段4实现，当前已有 `PermissionDecision`。
-
-输入：用户、Agent、工具名、风险等级和参数摘要。
-
-输出：
-
-```text
-ALLOW
-ASK
-DENY
-```
-
-该模块不执行工具，只给出决策。
-
-### `harness/middleware.py`
-
-阶段4和阶段5实现。
-
-使用LangChain v1 Middleware实现：
-
-- 模型调用前注入Memory和Skill。
-- 模型调用前触发Context Compact。
-- Tool Call前做Schema与权限检查。
-- Tool Call后清洗结果和记录审计。
-- Tool异常时调用Recovery Policy。
-
-### `harness/context.py`
-
-阶段5实现。
-
-负责控制上下文体积，按顺序：裁剪重复结果、压缩工具输出、总结历史。必须保留硬约束、待审批操作和未完成任务。
-
-### `harness/memory.py`
-
-阶段5实现。
-
-负责用户长期偏好的Selection、Extraction和Consolidation，例如最大步行距离、饮食限制和交通偏好。
-
-不保存每一句聊天，也不在第一版引入向量数据库。
-
-### `harness/tasks.py`
-
-阶段5实现。
-
-负责Todo和持久任务：
-
-```text
-task_id
-parent_id
-blocked_by
-status
-result
-agent_id
-```
-
-当前所有Task由 `travel_agent` 执行；未来多Agent可以在不改Task结构的情况下领取任务。
-
-### `harness/skills.py`
-
-阶段5实现。
-
-启动时只发现Skill名称和描述；Agent明确需要时才加载完整 `SKILL.md`，避免把所有领域知识塞入Prompt。
-
-### `harness/recovery.py`
-
-阶段5实现。
-
-将错误分类为超时、限流、参数错误、MCP断线、上下文过长和外部写入失败，再选择有上限重试、重连、回到模型、降级或Outbox。
-
-### `harness/scheduler.py`
-
-阶段8实现。
-
-负责注册：出发前天气检查、路线检查、待同步重试和行程归档。调度任务必须持久化并且操作幂等。
-
-## 8. MCP层
-
-### `mcp/manager.py`
-
-阶段6实现，是内置MCP Host核心。
-
-职责：
-
-- 为每个Server维护一个Client Session。
-- 在应用启动时连接、`initialize`、`list_tools`。
-- 将工具交给Adapter和Tool Registry。
-- 调用 `call_tool`。
-- 单Server断线重连。
-- 应用关闭时清理全部Session。
-
-这里不保存业务状态，也不做权限决策。
-
-### `mcp/config.py`
-
-阶段6实现。
-
-将 `mcp.json` 解析为受验证配置，解析stdio和Streamable HTTP参数。Token通过环境变量读取，但不能进入可序列化配置或Prompt。
-
-### `mcp/tool_adapter.py`
-
-阶段6实现。
-
-负责：
-
-- `server + remote_tool` 转换成命名空间名称。
-- MCP JSON Schema转换为LangChain Tool Schema。
-- MCP结果转换成模型可消费的短结果。
-- 保留来源Server和原始工具名用于审计。
-
-## 9. Domain层
+## 7. Domain 层
 
 ### `domain/models.py`
 
-当前已经提供第一批Pydantic模型：
-
-- `TripRequirement`
-- `ItineraryItem`
-- `Itinerary`
-
-这些模型同时用于结构化输出、API响应和约束检查，避免维护三套相同数据结构。
+`TripRequirement`、`Itinerary`、领域 `ItineraryItem`，用于 Agent 嵌套参数和约束校验。它与 ORM 的 `ItineraryItem` 同名但用途不同。
 
 ### `domain/constraints.py`
 
-阶段3实现，是项目正确性的核心。
+纯 Python 硬约束：时间、范围、重叠、预算、步行和必去地点。没有网络和数据库依赖。
 
-使用普通Python校验：
+## 8. Agent 层
 
-- 时间区间和重叠。
-- 路线时间是否足够。
-- 总预算。
-- 总步行距离。
-- 营业时间。
+### `agent/runtime.py`
 
-这些规则必须有单元测试，不依赖LLM。
+项目的单 Agent 核心：
 
-## 10. Native Tools层
+- 构建本地 Registry。
+- 把 Harness 工具转成 LangChain StructuredTool。
+- 组装模型、动态 Prompt、摘要 Middleware 和 Checkpointer。
+- 提供聊天、审批恢复和历史读取。
+
+### `agent/prompts.py`
+
+稳定业务规则，不保存用户状态或凭证。
+
+### `agent/state.py`
+
+`AgentContext` 正在使用；`TravelAgentState` 为未来外层业务图预留，当前未接入。
+
+### `agent/graph.py`
+
+当前只有说明，没有额外业务 Graph。不要把它描述成已经实现的 Trip Lifecycle。
+
+## 9. Harness 层
+
+### `tool_registry.py`
+
+唯一工具目录、名称唯一检查、Pydantic 参数验证和 handler 分发。
+
+### `permissions.py` 与 `middleware.py`
+
+前者只做 ALLOW/ASK/DENY 决策；后者连接事件、审批、有限重试和真实工具执行。
+
+### `runtime_context.py`
+
+使用 `ContextVar` 在深层工具调用中取得当前用户、线程和 Agent，不把这些参数暴露给模型。
+
+### `memory.py`
+
+结构化偏好读取和合并，可在测试中使用内存实现，在应用中使用 MySQL。
+
+### `tasks.py`
+
+依赖任务创建、列表、runnable 计算和完成，可使用内存或 MySQL Store。
+
+### `skills.py`
+
+发现 Skill 元数据并按名称延迟加载完整 `SKILL.md`。
+
+### `context.py`
+
+确定性消息裁剪辅助函数；生产长会话摘要由 Agent Runtime 的官方 Middleware 完成。
+
+### `recovery.py`
+
+针对 Timeout/ConnectionError 的通用异步有限重试。
+
+### `events.py`
+
+单进程 EventBroker：SSE 重连缓冲、线程订阅和事件计数。不是持久审计系统。
+
+### `scheduler.py`
+
+MySQL 天气 Job 的创建、取消、查询、到期扫描、失败计数和结果保存。
+
+## 10. Native Tools
 
 ### `tools/budget.py`
 
-阶段1的第一个工具。使用Decimal计算总费用和剩余预算，用它学习Tool Calling完整链路。
+Decimal 预算合计、余额和超支判断。
+
+### `tools/itinerary.py`
+
+把领域约束包装为 Agent 工具。
+
+### `tools/trips.py`
+
+Agent 使用的数据库工具，但仍只通过 `TripService` 访问数据库。
 
 ### `tools/amap.py`
 
-已实现高德 Web 服务的地理编码、POI和步行/驾车/公交路线，只返回项目需要的精简字段、来源和查询时间。没有 `AMAP_API_KEY` 时不会把这些工具注册给Agent。
+高德请求基础、地理编码、POI、路线和静态地图，负责错误归一化与结果压缩。
 
 ### `tools/weather.py`
 
-已实现高德当前天气和未来天气查询，并标准化天气、温度、风力和报告时间。
+高德天气当前/预报响应标准化。
 
-这些工具最终与MCP工具一起进入Tool Registry。
+## 11. MCP 层
 
-## 11. Channel层
+### `mcp/config.py`
+
+验证 Server transport、URL/Token 环境变量、stdio 命令和 `env_from`。
+
+### `mcp/manager.py`
+
+每个 Server 一个 Session，负责连接、发现、调用和关闭；连接错误彼此隔离。
+
+### `mcp/tool_adapter.py`
+
+把 MCP JSON Schema 转成 Pydantic Model，添加 Server 命名空间并推断 Risk Level。
+
+### `mcp/feishu_auth.py`
+
+飞书 tenant token 获取、两小时缓存和远程 MCP 请求头。
+
+## 12. Channel 与 Outbox
 
 ### `channels/feishu.py`
 
-阶段7实现。它解决“飞书如何把用户消息交给Agent”，不是MCP Client替代品。
-
-职责：回调验证、消息解析、平台用户映射和响应格式转换。
-
-飞书MCP则解决“Agent如何创建文档和日历”。两者方向不同：
-
-```text
-飞书Webhook → Channel → Agent
-Agent → MCP Client → 飞书MCP Server
-```
-
-未来微信、企业微信等入口在 `channels/` 增加适配器；外部能力仍通过MCP接入。
-
-## 12. Infrastructure层
-
-### `infrastructure/database.py`
-
-当前负责SQLAlchemy/MySQL连接和请求级Session；MySQL Checkpointer/Store仍是后续持久化任务。
-
-### `infrastructure/repositories.py`
-
-阶段5实现。保存Trip、Task、UserPreference和ToolAudit。不要在Repository中调用LLM。
+飞书回调签名和 token 验证、文本事件解析、线程映射、事件去重和消息请求参数构造。
 
 ### `infrastructure/outbox.py`
 
-阶段7实现。外部写入失败时保存事件，由后台任务重试；使用幂等键防止重复创建飞书文档和日历。
+持久 MCP 调用、幂等键、指数退避和后台分发。当前主要保护飞书回复和天气通知。
 
-## 13. 测试目录
+## 13. 前端
 
-### `tests/unit`
+前端实际实现集中在三个文件：
 
-不连接网络和真实数据库，测试约束、权限、Schema、工具结果转换和Memory合并。
+- `index.html`：仪表盘、助手、行程、登录和详情抽屉结构。
+- `styles.css`：响应式视觉、状态、组件和移动端布局。
+- `app.js`：HTTP/SSE、认证状态、审批、行程 CRUD、日程编辑和地图加载。
 
-### `tests/integration`
+`frontend/src/*` 目前只有 `.gitkeep`，不代表已经存在 React/Vue 模块。项目刻意不使用 Node 构建工具和前端框架。
 
-测试MySQL Checkpoint、Fake MCP Server、高德录制响应和飞书测试应用。
+## 14. 评测与测试
 
-### `tests/e2e`
+### `evals/travel_cases.json`
 
-从用户消息开始，验证工具轨迹、审批、行程保存和外部同步完整流程。
+100 条真实 Agent 输入和可观察预期。
 
-### `test_health.py`
+### `scripts/evaluate.py`
 
-当前最小烟雾测试，保证FastAPI应用可以导入和响应。
+调用运行中的 API，读取每线程工具事件，计算指标并输出 Markdown 报告。
 
-## 14. 前端目录
+### `scripts/check_mcp.py`
 
-前端阶段9实现：
+安全检查启用的 MCP Server、工具数量和错误，不输出 Token。
 
-- `src/api`：HTTP与SSE Client。
-- `src/components`：无业务状态的通用组件。
-- `features/chat`：聊天与执行轨迹。
-- `features/trips`：行程时间轴和地图。
-- `features/approvals`：审批卡片。
+### `tests/*`
 
-在阶段9之前不安装Node依赖，避免前后端同时开工分散学习目标。
+当前测试按能力拆成 11 个 `test_*.py`，总计 40 项。`unit/integration/e2e` 子目录目前是预留空目录，实际测试仍平铺在 `tests/`。
 
-## 15. Skills目录
+## 15. Skills
 
-阶段5逐个创建：
+当前两个 Skill 已被运行时发现：
 
 ```text
-skills/family-trip/SKILL.md
-skills/budget-trip/SKILL.md
-skills/bad-weather-replan/SKILL.md
+skills/budget-travel/SKILL.md
+skills/family-travel/SKILL.md
 ```
 
-Skill是按需知识，不是Python插件，也不能绕过Tool Registry和Permission Engine。
+Skill 不能调用数据库或外部服务，也不能改变工具风险等级。
 
-## 16. 你应该从哪里开始
-
-严格按照以下文件顺序实现，不要同时填写所有占位模块：
+## 16. 推荐阅读顺序
 
 ```text
-1. tools/budget.py
-2. harness/tool_registry.py
-3. agent/runtime.py
-4. api/routes/chat.py
-5. tools/weather.py + tools/amap.py
-6. domain/constraints.py
-7. agent/graph.py
-8. harness/permissions.py + middleware.py
-9. infrastructure/database.py
-10. mcp/config.py + manager.py + tool_adapter.py
-11. channels/feishu.py + infrastructure/outbox.py
-12. context.py + memory.py + tasks.py + skills.py
-13. scheduler.py
-14. frontend
+1. main.py + api/router.py
+2. api/routes/trips.py → services/trip.py → repositories
+3. tools/budget.py → tool_registry.py → agent/runtime.py
+4. permissions.py → middleware.py → approvals.py → checkpoint.py
+5. domain/constraints.py → tools/trips.py
+6. memory.py → tasks.py → skills.py
+7. mcp/config.py → manager.py → tool_adapter.py
+8. channels/feishu.py → webhooks.py → outbox.py
+9. scheduler.py → main.py 的 replan
+10. scripts/evaluate.py + 100 条评测
 ```
 
-每完成一步，都需要：一个可运行演示、一个最小测试、一次文档更新。详细验收条件见 [实现流程与里程碑](04-implementation-roadmap.md)。
-
-## 17. 多 Agent扩展位置
-
-当前没有子Agent代码。未来扩展时：
-
-```text
-app/agents/registry.py        注册多个Agent
-app/agents/supervisor.py      分解和分派任务
-app/agents/protocol.py        Agent间消息结构
-```
-
-不会复制MCP Manager、Permission Engine、Memory或Task System。子Agent作为工具或Subgraph接入现有LangGraph，并继承父图Checkpoint命名空间。
-
-只有当单Agent出现可测量问题时才创建这些文件。
+每读完一条链路，运行对应测试并画出数据流；不要一次背完整目录。
