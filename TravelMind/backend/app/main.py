@@ -15,6 +15,7 @@ from app.agent.runtime import build_agent_runtime, build_default_registry
 from app.agent.state import AgentContext
 from app.api.router import api_router
 from app.channels.feishu import EventDeduplicator
+from app.channels.feishu import FEISHU_SEND_MESSAGE_TOOL, feishu_text_arguments
 from app.config import PROJECT_ROOT, settings
 from app.infrastructure.checkpoint import TravelMindMySQLSaver
 from app.infrastructure.database import SessionLocal, ensure_application_tables
@@ -76,6 +77,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 channel="scheduler",
             ),
         )
+        if job.thread_id and job.thread_id.startswith("feishu:"):
+            chat_id = job.thread_id.removeprefix("feishu:")
+            if chat_id and FEISHU_SEND_MESSAGE_TOOL in manager.tools:
+                event = outbox.enqueue(
+                    "mcp.call_tool",
+                    {
+                        "tool": FEISHU_SEND_MESSAGE_TOOL,
+                        "arguments": feishu_text_arguments(
+                            chat_id,
+                            f"TravelMind 出发前天气复查：\n{result.message}",
+                            f"weather-{job.id}",
+                        ),
+                    },
+                    f"weather-notice:{job.id}",
+                )
+                await outbox_worker.dispatch(event.id)
         return result.message
 
     scheduler = Scheduler(SessionLocal, replan)

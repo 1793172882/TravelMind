@@ -5,7 +5,12 @@ import json
 
 import pytest
 
-from app.channels.feishu import EventDeduplicator, FeishuChannel, InvalidFeishuCallback
+from app.channels.feishu import (
+    EventDeduplicator,
+    FeishuChannel,
+    InvalidFeishuCallback,
+    feishu_text_arguments,
+)
 
 
 def _event() -> dict[str, object]:
@@ -63,3 +68,10 @@ def test_feishu_rejects_wrong_token_and_deduplicates() -> None:
     events = EventDeduplicator()
     assert events.first_seen("event-1") is True
     assert events.first_seen("event-1") is False
+
+
+def test_feishu_text_arguments_are_idempotent() -> None:
+    arguments = feishu_text_arguments("chat-1", "天气有雨", "weather-7")
+
+    assert arguments["data"]["uuid"] == "travelmind-weather-7"
+    assert json.loads(arguments["data"]["content"]) == {"text": "天气有雨"}

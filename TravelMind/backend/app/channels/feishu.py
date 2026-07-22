@@ -15,6 +15,21 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.models.webhook_event import WebhookEventRecord
 
+FEISHU_SEND_MESSAGE_TOOL = "lark_openapi.im_v1_message_create"
+
+
+def feishu_text_arguments(chat_id: str, text: str, message_key: str) -> dict[str, Any]:
+    """Build one idempotent Lark text-message request."""
+    return {
+        "data": {
+            "receive_id": chat_id,
+            "msg_type": "text",
+            "content": json.dumps({"text": text}, ensure_ascii=False),
+            "uuid": f"travelmind-{message_key}",
+        },
+        "params": {"receive_id_type": "chat_id"},
+    }
+
 
 class InvalidFeishuCallback(ValueError):
     """Raised when a callback is unauthenticated or malformed."""

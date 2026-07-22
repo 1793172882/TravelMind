@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from app.agent.state import AgentContext
 from app.api.dependencies import AgentRuntimeDependency, CurrentUserDependency
 from app.api.schemas.chat import ChatRequest, ChatResponse
+from app.harness.events import event_dict
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -47,6 +48,19 @@ async def chat_events(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/{thread_id}/events/snapshot", response_model=list[dict])
+def chat_event_snapshot(
+    thread_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> list[dict]:
+    """Return the buffered execution trace used by diagnostics and evaluations."""
+    return [
+        event_dict(event)
+        for event in request.app.state.events.history(user.thread_id(thread_id))
+    ]
 
 
 @router.post("", response_model=ChatResponse)

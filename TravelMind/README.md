@@ -32,9 +32,9 @@ Controller → Service → Repository → SQLAlchemy ORM → MySQL
 - 飞书 Webhook challenge、token/签名校验、文本消息转换和事件去重。
 - 约束复验后一次审批、单事务保存完整行程与全部日程项。
 - 本地账号登录与用户级行程、Checkpoint 会话隔离。
-- MySQL Outbox、持久 Webhook 去重、出发前 24/2 小时天气复查与自动重规划。
+- MySQL Outbox、持久 Webhook 去重、出发前 24/2 小时天气复查、自动重规划及飞书通知。
 - 无 Node 依赖的响应式页面，包含 SSE 工具进度、服务端聊天历史、静态地图及完整行程编辑。
-- 20 条 Agent 评测集与 38 个自动化测试（包含真实 stdio MCP 生命周期）。
+- 100 条中文 Agent 评测集，覆盖工具选择、约束满足、审批和安全边界。
 
 当前是“可运行的后端 MVP”，不是所有外部服务都开箱即用。真实模型调用需要阿里云百炼 Key，高德实时数据需要 Web 服务 Key；飞书写文档、日历等能力需要可用的飞书 MCP Server。项目不会提交任何真实密钥。
 
@@ -178,10 +178,18 @@ python -m ruff check app tests
 python -m pytest -q
 ```
 
-启动服务后运行 20 条真实 Agent 评测：
+启动服务后运行 100 条真实 Agent 评测：
 
 ```powershell
 python scripts/evaluate.py
+```
+
+评测会生成 `backend/evals/latest_report.md`，包含任务完成率、工具选择准确率、
+约束满足率、审批准确率以及 P50/P95 延迟。开发时可先运行少量或单类用例：
+
+```powershell
+python scripts/evaluate.py --limit 10
+python scripts/evaluate.py --category route
 ```
 
 运行状态可通过 `GET /metrics` 查看，模型、高德和飞书 MCP 就绪情况通过

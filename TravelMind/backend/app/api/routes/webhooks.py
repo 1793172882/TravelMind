@@ -10,14 +10,15 @@ from app.agent.state import AgentContext
 from app.api.dependencies import resolve_agent_runtime
 from app.channels.feishu import (
     EventDeduplicator,
+    FEISHU_SEND_MESSAGE_TOOL,
     FeishuChannel,
     InvalidFeishuCallback,
+    feishu_text_arguments,
 )
 from app.config import settings
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger(__name__)
-FEISHU_SEND_MESSAGE_TOOL = "lark_openapi.im_v1_message_create"
 
 
 async def _run_feishu_agent(
@@ -58,15 +59,7 @@ async def _send_feishu_reply(
         logger.warning("飞书消息工具未连接，无法回复 chat_id=%s", chat_id)
         return
     try:
-        arguments = {
-            "data": {
-                "receive_id": chat_id,
-                "msg_type": "text",
-                "content": json.dumps({"text": text}, ensure_ascii=False),
-                "uuid": f"travelmind-{message_id}",
-            },
-            "params": {"receive_id_type": "chat_id"},
-        }
+        arguments = feishu_text_arguments(chat_id, text, message_id)
         outbox = getattr(request.app.state, "outbox", None)
         worker = getattr(request.app.state, "outbox_worker", None)
         if outbox and worker:
