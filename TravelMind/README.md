@@ -26,12 +26,15 @@ Controller → Service → Repository → SQLAlchemy ORM → MySQL
 - 基于 `thread_id` 的多轮对话、工具调用、人工审批、暂停与恢复。
 - Harness Tool Registry、Pydantic 参数校验、权限分级、失败重试。
 - 上下文压缩、用户偏好 Memory、依赖任务、Skill 按需加载的最小实现。
+- Memory 与 Task 已持久化到 MySQL，并通过动态 Prompt/工具真正接入 Agent。
 - 内置 MCP Manager，支持 stdio 和 Streamable HTTP；每个 Server 独立 Session 和故障隔离。
 - MCP 工具动态发现并进入统一 Harness 权限管线。
 - 飞书 Webhook challenge、token/签名校验、文本消息转换和事件去重。
 - 约束复验后一次审批、单事务保存完整行程与全部日程项。
-- 无 Node 依赖的产品级响应式页面，包含总览、聊天、审批和行程管理。
-- Fake MCP Server 与 34 个自动化测试（包含真实 stdio MCP 生命周期）。
+- 本地账号登录与用户级行程、Checkpoint 会话隔离。
+- MySQL Outbox、持久 Webhook 去重、出发前 24/2 小时天气复查与自动重规划。
+- 无 Node 依赖的响应式页面，包含 SSE 工具进度、服务端聊天历史、静态地图及完整行程编辑。
+- 20 条 Agent 评测集与 38 个自动化测试（包含真实 stdio MCP 生命周期）。
 
 当前是“可运行的后端 MVP”，不是所有外部服务都开箱即用。真实模型调用需要阿里云百炼 Key，高德实时数据需要 Web 服务 Key；飞书写文档、日历等能力需要可用的飞书 MCP Server。项目不会提交任何真实密钥。
 
@@ -87,7 +90,10 @@ DATABASE_URL=mysql+pymysql://用户名:密码@127.0.0.1:3306/travelmind?charset=
 ```text
 DASHSCOPE_API_KEY=阿里云百炼API Key
 AMAP_API_KEY=高德Web服务Key
+AUTH_SECRET=一个足够长的随机字符串
 ```
+
+需要强制所有 Web API 登录时设置 `AUTH_REQUIRED=true`；本地学习阶段默认允许匿名使用。
 
 | 环境变量 | 国内服务 | 获取位置 | 用途 |
 |---|---|---|---|
@@ -145,6 +151,8 @@ python -m uvicorn app.main:app --reload
 
 ```text
 POST /chat
+GET  /chat/{thread_id}/history
+GET  /chat/{thread_id}/events
 GET  /approvals/{thread_id}
 POST /approvals/{thread_id}
 POST /trips
@@ -153,6 +161,12 @@ GET  /trips/{trip_id}
 POST /trips/{trip_id}/items
 GET  /trips/{trip_id}/items
 POST /trips/{trip_id}/archive
+PATCH/DELETE /trips/{trip_id}
+PATCH/DELETE /trips/{trip_id}/items/{item_id}
+GET  /trips/{trip_id}/map
+POST /auth/register
+POST /auth/login
+GET  /automations
 POST /webhooks/feishu
 ```
 
@@ -164,14 +178,22 @@ python -m ruff check app tests
 python -m pytest -q
 ```
 
+启动服务后运行 20 条真实 Agent 评测：
+
+```powershell
+python scripts/evaluate.py
+```
+
+运行状态可通过 `GET /metrics` 查看，模型、高德和飞书 MCP 就绪情况通过
+`GET /integrations` 查看。
+
 若 Windows 沙箱禁止创建子进程，只有真实 stdio MCP 测试会出现 `WinError 5`；在普通终端运行即可。
 
 ## 当前边界
 
-- 飞书 Webhook 已能把消息交给 Agent；将结果主动回复飞书，需要启用提供发消息工具的飞书 MCP Server。
-- Memory、Task 和 Skill Loader 已有最小实现，目前尚未接入持久化 Agent 工作流。
-- 持久 Outbox 和 Scheduler 尚未实现；真实外部写入与定时重规划接通后再添加。
+- 飞书消息、文档和日历代码链路已接通；真实写入仍取决于飞书开放平台权限、事件订阅和可访问的 HTTPS 回调地址。
 - 第一版不做自动付款、抢票、非官方个人微信登录、多 Agent、微服务、Redis或向量数据库。
+- 按当前项目范围不提供 Docker Compose、CI/CD 或云端部署配置。
 
 ## 文档导航
 

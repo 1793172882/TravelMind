@@ -348,3 +348,33 @@ async def plan_route(
         "source": "amap.route",
         "observed_at": _observed_at(),
     }
+
+
+async def static_map_image(locations: list[str]) -> bytes:
+    """Render geocoded markers through AMap without exposing the Web key."""
+    if not locations:
+        raise AMapAPIError("地图至少需要一个坐标")
+    key = settings.amap_api_key.get_secret_value() if settings.amap_api_key else None
+    if not key:
+        raise AMapAPIError("缺少 AMAP_API_KEY，无法生成地图")
+    markers = "|".join(
+        f"mid,,{chr(65 + index)}:{location}"
+        for index, location in enumerate(locations[:20])
+    )
+    try:
+        async with httpx.AsyncClient(
+            base_url=AMAP_BASE_URL,
+            timeout=settings.amap_timeout_seconds,
+        ) as client:
+            response = await client.get(
+                "/v3/staticmap",
+                params={"size": "750*400", "markers": markers, "key": key},
+            )
+            response.raise_for_status()
+    except httpx.TimeoutException as error:
+        raise TimeoutError("高德静态地图请求超时") from error
+    except httpx.HTTPError as error:
+        raise AMapAPIError("高德静态地图生成失败") from error
+    if not response.headers.get("content-type", "").startswith("image/"):
+        raise AMapAPIError("高德静态地图没有返回图片")
+    return response.content

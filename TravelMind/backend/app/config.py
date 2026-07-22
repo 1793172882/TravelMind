@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     dashscope_api_key: SecretStr | None = None
     amap_api_key: SecretStr | None = None
     amap_timeout_seconds: float = 10
+    context_compact_trigger_messages: int = 40
+    context_compact_keep_messages: int = 20
+    skills_path: Path = PROJECT_ROOT / "skills"
+    auth_required: bool = False
+    auth_secret: SecretStr | None = None
+    auth_token_hours: int = 168
     mcp_config_path: Path = PROJECT_ROOT / "config" / "mcp.json"
     feishu_verification_token: SecretStr | None = None
     feishu_encrypt_key: SecretStr | None = None

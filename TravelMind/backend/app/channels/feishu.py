@@ -4,9 +4,16 @@ import hashlib
 import hmac
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import Any, Mapping
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.infrastructure.models.webhook_event import WebhookEventRecord
 
 
 class InvalidFeishuCallback(ValueError):
@@ -32,13 +39,39 @@ class FeishuTextMessage:
 class EventDeduplicator:
     """Bound duplicate webhook retries in one application process."""
 
-    def __init__(self, ttl_seconds: int = 86_400) -> None:
+    def __init__(
+        self,
+        ttl_seconds: int = 86_400,
+        session_factory: Callable[[], Session] | None = None,
+    ) -> None:
         self.ttl_seconds = ttl_seconds
+        self.session_factory = session_factory
         self._seen: dict[str, float] = {}
         self._lock = Lock()
 
     def first_seen(self, event_id: str) -> bool:
         """Return False when the same event was accepted within the TTL."""
+        if self.session_factory:
+            now = datetime.now(UTC).replace(tzinfo=None)
+            with self.session_factory() as session:
+                record = session.get(WebhookEventRecord, event_id)
+                if record is not None and record.expires_at > now:
+                    return False
+                if record is not None:
+                    session.delete(record)
+                    session.flush()
+                session.add(
+                    WebhookEventRecord(
+                        event_id=event_id,
+                        expires_at=now + timedelta(seconds=self.ttl_seconds),
+                    )
+                )
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    return False
+                return True
         now = time.monotonic()
         with self._lock:
             self._seen = {

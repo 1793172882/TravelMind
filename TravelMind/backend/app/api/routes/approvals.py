@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.agent.state import AgentContext
-from app.api.dependencies import AgentRuntimeDependency
+from app.api.dependencies import AgentRuntimeDependency, CurrentUserDependency
 from app.api.schemas.chat import ChatResponse
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -31,11 +31,12 @@ class ApprovalDecisionRequest(BaseModel):
 async def get_approvals(
     thread_id: str,
     runtime: AgentRuntimeDependency,
+    user: CurrentUserDependency,
 ) -> ApprovalResponse:
     """Return pending approval payloads without resuming execution."""
     return ApprovalResponse(
         thread_id=thread_id,
-        pending=await runtime.pending_approvals(thread_id),
+        pending=await runtime.pending_approvals(user.thread_id(thread_id)),
     )
 
 
@@ -44,14 +45,15 @@ async def decide_approval(
     thread_id: str,
     request: ApprovalDecisionRequest,
     runtime: AgentRuntimeDependency,
+    user: CurrentUserDependency,
 ) -> ChatResponse:
     """Approve or reject the current interrupt and resume the same thread."""
     result = await runtime.resume(
-        thread_id,
+        user.thread_id(thread_id),
         request.decision == "approve",
         AgentContext(
-            user_id=request.user_id,
-            thread_id=thread_id,
+            user_id=user.user_id,
+            thread_id=user.thread_id(thread_id),
             channel=request.channel,
         ),
     )

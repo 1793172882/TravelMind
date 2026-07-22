@@ -21,6 +21,12 @@ class Trip(Base):
         autoincrement=True,
         comment="行程ID",
     )
+    owner_id: Mapped[str] = mapped_column(
+        String(200), nullable=False, default="anonymous", comment="逻辑用户标识"
+    )
+    thread_id: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, comment="创建行程的 Agent 会话"
+    )
     origin: Mapped[str] = mapped_column(String(100), comment="出发地")
     destination: Mapped[str] = mapped_column(String(100), comment="目的地")
     start_at: Mapped[datetime | None] = mapped_column(DateTime, comment="行程开始时间")

@@ -277,6 +277,11 @@ svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-
 .timeline-card strong { display: block; font-size: 12px; }
 .timeline-card p { margin: 5px 0; color: #75847e; font-size: 10px; }
 .timeline-card small { color: #9aa5a1; font-size: 9px; }
+.timeline-card-actions { display: flex; gap: 10px; margin-top: 8px; }
+.timeline-card-actions button { border: 0; padding: 0; color: var(--green); background: transparent; cursor: pointer; font-size: 10px; }
+.trip-map { display: block; width: 100%; min-height: 180px; margin: 18px 0; border: 1px solid var(--line); border-radius: 14px; background: #edf3f0; object-fit: cover; }
+.single-column { grid-template-columns: 1fr; }
+.auth-modal { width: min(440px, calc(100% - 28px)); }
 .timeline-empty { border: 1px dashed #d4ddd8; border-radius: 12px; padding: 18px; color: #8b9893; background: #fafcfa; text-align: center; font-size: 10px; }
 .add-item-form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; border: 1px solid var(--line); border-radius: 14px; margin-top: 13px; padding: 14px; background: #fafcfa; }
 .add-item-form[hidden] { display: none; }
@@ -333,7 +338,7 @@ svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-
   .page-heading { min-width: 0; flex: 1; }
   .page-heading h1 { overflow: hidden; font-size: 19px; text-overflow: ellipsis; white-space: nowrap; }
   .page-heading p { font-size: 8px; }
-  .date-chip, .topbar-actions .button { display: none; }
+  .date-chip, .topbar-actions [data-open-create] { display: none; }
   .hero-card { min-height: 0; border-radius: 19px; }
   .hero-copy { padding: 29px 24px; }
   .hero-copy h2 { font-size: 28px; }

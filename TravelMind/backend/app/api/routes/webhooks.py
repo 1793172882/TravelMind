@@ -58,18 +58,27 @@ async def _send_feishu_reply(
         logger.warning("飞书消息工具未连接，无法回复 chat_id=%s", chat_id)
         return
     try:
-        await manager.call_tool(
-            FEISHU_SEND_MESSAGE_TOOL,
-            {
-                "data": {
-                    "receive_id": chat_id,
-                    "msg_type": "text",
-                    "content": json.dumps({"text": text}, ensure_ascii=False),
-                    "uuid": f"travelmind-{message_id}",
-                },
-                "params": {"receive_id_type": "chat_id"},
+        arguments = {
+            "data": {
+                "receive_id": chat_id,
+                "msg_type": "text",
+                "content": json.dumps({"text": text}, ensure_ascii=False),
+                "uuid": f"travelmind-{message_id}",
             },
-        )
+            "params": {"receive_id_type": "chat_id"},
+        }
+        outbox = getattr(request.app.state, "outbox", None)
+        worker = getattr(request.app.state, "outbox_worker", None)
+        if outbox and worker:
+            event = outbox.enqueue(
+                "mcp.call_tool",
+                {"tool": FEISHU_SEND_MESSAGE_TOOL, "arguments": arguments},
+                f"feishu-reply:{message_id}",
+            )
+            if not await worker.dispatch(event.id):
+                logger.warning("飞书消息已进入 Outbox 等待重试 chat_id=%s", chat_id)
+        else:
+            await manager.call_tool(FEISHU_SEND_MESSAGE_TOOL, arguments)
     except Exception:
         logger.exception("飞书消息回复失败 chat_id=%s", chat_id)
 

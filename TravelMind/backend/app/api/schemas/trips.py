@@ -23,6 +23,16 @@ class TripCreateRequest(BaseModel):
     start_at: datetime | None = None
     end_at: datetime | None = None
     budget: Decimal | None = Field(default=None, ge=0)
+    thread_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class TripUpdateRequest(BaseModel):
+    origin: str | None = Field(default=None, min_length=1, max_length=100)
+    destination: str | None = Field(default=None, min_length=1, max_length=100)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    budget: Decimal | None = Field(default=None, ge=0)
+    status: str | None = Field(default=None, pattern=r"^(draft|active|completed|archived)$")
 
 
 class TripResponse(BaseModel):
@@ -51,6 +61,17 @@ class ItineraryItemCreateRequest(BaseModel):
     start_at: datetime | None = None
     end_at: datetime | None = None
     estimated_cost: Decimal = Field(default=Decimal("0"), ge=0)
+    source: str | None = Field(default=None, max_length=100)
+
+
+class ItineraryItemUpdateRequest(BaseModel):
+    day_number: int | None = Field(default=None, ge=1)
+    sort_order: int | None = Field(default=None, ge=0)
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    location: str | None = Field(default=None, min_length=1, max_length=200)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    estimated_cost: Decimal | None = Field(default=None, ge=0)
     source: str | None = Field(default=None, max_length=100)
 
 

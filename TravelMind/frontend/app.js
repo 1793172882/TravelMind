@@ -21,6 +21,9 @@ const elements = {
   drawer: $("#trip-drawer"),
   drawerContent: $("#drawer-content"),
   toastRegion: $("#toast-region"),
+  authDialog: $("#auth-dialog"),
+  authForm: $("#auth-form"),
+  authButton: $("#auth-button"),
 };
 
 const pageMeta = {
@@ -38,6 +41,9 @@ const state = {
   chatBusy: false,
   threadId: localStorage.getItem("travelmind.thread") || createThreadId(),
   history: [],
+  token: localStorage.getItem("travelmind.token") || "",
+  user: null,
+  eventAbort: null,
 };
 
 function greeting() {
@@ -80,7 +86,7 @@ async function request(path, options = {}) {
   let response;
   try {
     response = await fetch(path, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers || {}) },
       ...options,
     });
   } catch {
@@ -99,6 +105,62 @@ async function request(path, options = {}) {
     throw new Error(String(message));
   }
   return data;
+}
+
+function authHeaders() {
+  return state.token ? { Authorization: `Bearer ${state.token}` } : {};
+}
+
+async function loadAuth() {
+  try {
+    state.user = await request("/auth/me");
+    elements.authButton.textContent = state.user.authenticated ? `${state.user.username} · 退出` : "登录";
+  } catch {
+    state.token = "";
+    state.user = null;
+    localStorage.removeItem("travelmind.token");
+    elements.authButton.textContent = "登录";
+  }
+}
+
+function openAuthDialog() {
+  elements.authForm.reset();
+  elements.authDialog.showModal();
+  setTimeout(() => elements.authForm.elements.username.focus(), 50);
+}
+
+async function authenticate(mode) {
+  const data = new FormData(elements.authForm);
+  const button = mode === "register" ? $("#register-button") : $("#login-button");
+  setButtonBusy(button, true, mode === "register" ? "注册中…" : "登录中…");
+  try {
+    const result = await request(`/auth/${mode}`, {
+      method: "POST",
+      body: JSON.stringify({ username: data.get("username"), password: data.get("password") }),
+    });
+    state.token = result.access_token;
+    localStorage.setItem("travelmind.token", state.token);
+    elements.authDialog.close();
+    await loadAuth();
+    changeThread(createThreadId());
+    await loadTrips();
+    toast(mode === "register" ? "注册成功" : "登录成功", result.username);
+  } catch (error) {
+    toast(mode === "register" ? "注册失败" : "登录失败", error.message, "error");
+  } finally {
+    setButtonBusy(button, false);
+  }
+}
+
+function toggleAuth() {
+  if (!state.user?.authenticated) return openAuthDialog();
+  state.token = "";
+  state.user = null;
+  localStorage.removeItem("travelmind.token");
+  elements.authButton.textContent = "登录";
+  changeThread(createThreadId());
+  loadTrips();
+  toast("已经退出登录");
 }
 
 function toast(title, message = "", type = "success") {
@@ -308,6 +370,7 @@ async function createTrip(event) {
   const payload = {
     origin: data.get("origin").trim(),
     destination: data.get("destination").trim(),
+    thread_id: state.threadId,
   };
   for (const key of ["start_at", "end_at"]) if (data.get(key)) payload[key] = data.get(key);
   if (data.get("budget")) payload.budget = Number(data.get("budget"));
@@ -368,6 +431,9 @@ function renderTripDetail() {
   addToggle.type = "button";
   heading.append(addToggle);
   const timeline = node("div", "timeline");
+  const map = node("img", "trip-map");
+  map.alt = `${trip.origin}到${trip.destination}的地点分布图`;
+  loadTripMap(map, trip.id);
   if (!state.items.length) {
     timeline.append(node("div", "timeline-empty", "还没有详细日程，添加第一项安排吧。"));
   } else {
@@ -380,6 +446,10 @@ function renderTripDetail() {
     if (!form.hidden) $("input[name=title]", form).focus();
   });
   const actions = node("div", "drawer-actions");
+  const edit = node("button", "button button-secondary", "编辑行程");
+  edit.type = "button";
+  edit.addEventListener("click", () => editTrip(edit));
+  actions.append(edit);
   if (trip.status !== "archived") {
     const archive = node("button", "button button-danger", "归档此行程");
     archive.type = "button";
@@ -388,7 +458,23 @@ function renderTripDetail() {
   } else {
     actions.append(node("span", "pill", "此行程已归档"));
   }
-  elements.drawerContent.append(hero, stats, heading, timeline, form, actions);
+  const remove = node("button", "button button-danger", "删除行程");
+  remove.type = "button";
+  remove.addEventListener("click", () => deleteTrip(remove));
+  actions.append(remove);
+  elements.drawerContent.append(hero, stats, map, heading, timeline, form, actions);
+}
+
+async function loadTripMap(image, tripId) {
+  try {
+    const response = await fetch(`/trips/${tripId}/map`, { headers: authHeaders() });
+    if (!response.ok) throw new Error();
+    const url = URL.createObjectURL(await response.blob());
+    image.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
+    image.src = url;
+  } catch {
+    image.replaceWith(node("div", "timeline-empty", "地图暂时不可用"));
+  }
 }
 
 function createTimelineItem(item) {
@@ -398,8 +484,79 @@ function createTimelineItem(item) {
   card.append(node("strong", "", item.title), node("p", "", `⌖ ${item.location}`));
   const details = [item.start_at ? formatDate(item.start_at, true) : null, formatMoney(item.estimated_cost), item.source].filter(Boolean).join(" · ");
   card.append(node("small", "", details));
+  const actions = node("div", "timeline-card-actions");
+  const edit = node("button", "", "编辑");
+  edit.type = "button";
+  edit.addEventListener("click", () => editItineraryItem(item));
+  const remove = node("button", "", "删除");
+  remove.type = "button";
+  remove.addEventListener("click", () => deleteItineraryItem(item));
+  actions.append(edit, remove);
+  card.append(actions);
   row.append(card);
   return row;
+}
+
+async function editTrip(button) {
+  const trip = state.currentTrip;
+  if (!trip) return;
+  const origin = window.prompt("出发地", trip.origin);
+  if (origin === null) return;
+  const destination = window.prompt("目的地", trip.destination);
+  if (destination === null) return;
+  const budget = window.prompt("预算（留空表示不修改）", trip.budget ?? "");
+  const payload = { origin: origin.trim(), destination: destination.trim() };
+  if (budget !== "") payload.budget = Number(budget);
+  setButtonBusy(button, true, "保存中…");
+  try {
+    state.currentTrip = await request(`/trips/${trip.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+    await loadTrips({ quiet: true });
+    renderTripDetail();
+    toast("行程已更新");
+  } catch (error) {
+    toast("更新失败", error.message, "error");
+    setButtonBusy(button, false);
+  }
+}
+
+async function deleteTrip(button) {
+  if (!state.currentTrip || !window.confirm("确定永久删除这个行程及全部日程吗？")) return;
+  setButtonBusy(button, true, "删除中…");
+  try {
+    await request(`/trips/${state.currentTrip.id}`, { method: "DELETE" });
+    closeTripDrawer();
+    await loadTrips({ quiet: true });
+    toast("行程已删除");
+  } catch (error) {
+    toast("删除失败", error.message, "error");
+    setButtonBusy(button, false);
+  }
+}
+
+async function editItineraryItem(item) {
+  const title = window.prompt("日程标题", item.title);
+  if (title === null) return;
+  const location = window.prompt("地点", item.location);
+  if (location === null) return;
+  try {
+    await request(`/trips/${item.trip_id}/items/${item.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: title.trim(), location: location.trim() }),
+    });
+    state.items = await request(`/trips/${item.trip_id}/items`);
+    renderTripDetail();
+    toast("日程已更新");
+  } catch (error) { toast("更新失败", error.message, "error"); }
+}
+
+async function deleteItineraryItem(item) {
+  if (!window.confirm(`确定删除“${item.title}”吗？`)) return;
+  try {
+    await request(`/trips/${item.trip_id}/items/${item.id}`, { method: "DELETE" });
+    state.items = await request(`/trips/${item.trip_id}/items`);
+    renderTripDetail();
+    toast("日程已删除");
+  } catch (error) { toast("删除失败", error.message, "error"); }
 }
 
 function createItemForm(tripId) {
@@ -478,6 +635,62 @@ function loadHistory() {
     state.history = [{ role: "agent", text: "你好，我是 TravelMind。告诉我你想去哪里、什么时候出发，以及预算和同行人，我会帮你把想法变成可执行的旅程。", time: Date.now() }];
   }
   renderMessages();
+  loadServerHistory();
+}
+
+async function loadServerHistory() {
+  try {
+    const rows = await request(`/chat/${encodeURIComponent(state.threadId)}/history`);
+    if (!rows.length) return;
+    state.history = rows.map((message) => ({ ...message, time: Date.now() }));
+    saveHistory();
+    renderMessages();
+  } catch { /* local history remains available while the backend reconnects */ }
+}
+
+function handleAgentEvent(type, data) {
+  if (type === "run.started") setRunState("running");
+  if (type === "tool.started") {
+    setRunState("running");
+    elements.runStatus.textContent = `工具：${data.tool || "执行中"}`;
+  }
+  if (type === "approval.required" || type === "run.paused") setRunState("approval");
+  if (type === "run.completed") setRunState("done");
+  if (type === "tool.failed") {
+    elements.runStatus.textContent = "工具失败";
+    elements.runStatus.className = "pill pill-warning";
+  }
+}
+
+async function startEventStream() {
+  state.eventAbort?.abort();
+  const controller = new AbortController();
+  state.eventAbort = controller;
+  try {
+    const response = await fetch(`/chat/${encodeURIComponent(state.threadId)}/events`, {
+      headers: authHeaders(),
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) return;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() || "";
+      frames.forEach((frame) => {
+        const eventType = frame.match(/^event: (.+)$/m)?.[1];
+        const raw = frame.match(/^data: (.+)$/m)?.[1];
+        if (!eventType || !raw) return;
+        try { handleAgentEvent(eventType, JSON.parse(raw).data || {}); } catch { /* ignore malformed frame */ }
+      });
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") setTimeout(startEventStream, 2000);
+  }
 }
 
 function saveHistory() {
@@ -629,6 +842,7 @@ function changeThread(threadId) {
   loadHistory();
   loadApprovals();
   setRunState("idle");
+  startEventStream();
 }
 
 function bindEvents() {
@@ -644,6 +858,10 @@ function bindEvents() {
   $$('[data-close-modal]').forEach((button) => button.addEventListener("click", closeCreateDialog));
   $("#close-drawer").addEventListener("click", closeTripDrawer);
   elements.createForm.addEventListener("submit", createTrip);
+  elements.authButton.addEventListener("click", toggleAuth);
+  elements.authForm.addEventListener("submit", (event) => { event.preventDefault(); authenticate("login"); });
+  $("#register-button").addEventListener("click", () => authenticate("register"));
+  $$('[data-close-auth]').forEach((button) => button.addEventListener("click", () => elements.authDialog.close()));
   $("#refresh-trips").addEventListener("click", () => loadTrips());
   $("#trip-search").addEventListener("input", renderTrips);
   $("#trip-status-filter").addEventListener("change", renderTrips);
@@ -669,16 +887,18 @@ function bindEvents() {
   });
 }
 
-function init() {
+async function init() {
   $("#today-label").textContent = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(new Date());
   elements.threadInput.value = state.threadId;
   localStorage.setItem("travelmind.thread", state.threadId);
+  await loadAuth();
   loadHistory();
   bindEvents();
   navigate(location.hash.slice(1) || "dashboard", false);
   loadHealth();
   loadTrips();
   loadApprovals();
+  startEventStream();
 }
 
 init();

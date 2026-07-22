@@ -58,6 +58,7 @@
           </div>
           <div class="topbar-actions">
             <span id="today-label" class="date-chip"></span>
+            <button id="auth-button" class="button button-secondary" type="button">登录</button>
             <button class="button button-primary" type="button" data-open-create>
               <span aria-hidden="true">＋</span> 新建行程
             </button>
@@ -234,6 +235,20 @@
           <label class="form-span"><span>预算（元）</span><input name="budget" type="number" min="0" step="0.01" placeholder="例如：1500" /></label>
         </div>
         <div class="modal-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button id="create-trip-submit" class="button button-primary" type="submit">创建行程</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="auth-dialog" class="modal auth-modal">
+      <form id="auth-form" method="dialog">
+        <div class="modal-header">
+          <div><span class="section-kicker">ACCOUNT</span><h2>登录 TravelMind</h2><p>登录后，行程和 Agent 会话仅对当前账号可见。</p></div>
+          <button class="icon-button" type="button" data-close-auth aria-label="关闭">×</button>
+        </div>
+        <div class="form-grid single-column">
+          <label><span>用户名</span><input name="username" required minlength="3" maxlength="50" autocomplete="username" /></label>
+          <label><span>密码</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="current-password" /></label>
+        </div>
+        <div class="modal-actions"><button id="register-button" class="button button-secondary" type="button">注册新账号</button><button id="login-button" class="button button-primary" type="submit">登录</button></div>
       </form>
     </dialog>
 

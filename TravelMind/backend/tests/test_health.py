@@ -131,6 +131,18 @@ def test_lifespan_and_feishu_webhook(monkeypatch, tmp_path) -> None:
     """The real app lifespan initializes channel/MCP state before callbacks."""
     monkeypatch.setattr(settings, "feishu_verification_token", SecretStr("verify-me"))
     monkeypatch.setattr(settings, "mcp_config_path", tmp_path / "missing-mcp.json")
+    monkeypatch.setattr("app.main.ensure_application_tables", Mock())
+    monkeypatch.setattr("app.main.EventDeduplicator", lambda **_: __import__(
+        "app.channels.feishu", fromlist=["EventDeduplicator"]
+    ).EventDeduplicator())
+    checkpoint = AsyncMock()
+    checkpoint.setup = AsyncMock()
+    checkpoint_context = AsyncMock()
+    checkpoint_context.__aenter__.return_value = checkpoint
+    monkeypatch.setattr(
+        "app.main.TravelMindMySQLSaver.from_conn_string",
+        lambda _: checkpoint_context,
+    )
     runtime = Mock(spec=TravelAgentRuntime)
     runtime.chat = AsyncMock(
         return_value=AgentRunResult(status="completed", message="规划已生成")
@@ -160,6 +172,8 @@ def test_lifespan_and_feishu_webhook(monkeypatch, tmp_path) -> None:
     with TestClient(app) as lifespan_client:
         app.state.agent_runtime = runtime
         app.state.mcp_manager = manager
+        app.state.outbox = None
+        app.state.outbox_worker = None
         response = lifespan_client.post("/webhooks/feishu", json=payload)
 
     assert response.status_code == 200

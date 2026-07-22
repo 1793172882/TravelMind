@@ -10,6 +10,7 @@ from app.infrastructure.database import SessionLocal
 from app.domain.constraints import validate_itinerary
 from app.domain.models import Itinerary, TripRequirement
 from app.services.trip import TripService
+from app.harness.runtime_context import require_agent_context
 
 
 class CreateTripArgs(BaseModel):
@@ -64,14 +65,24 @@ def _trip_result(trip: Any) -> dict[str, Any]:
 def create_trip_record(**arguments: Any) -> dict[str, Any]:
     """Create a draft trip through the application service."""
     with SessionLocal() as session:
-        trip = TripService(session).create_trip(**arguments)
+        context = require_agent_context()
+        trip = TripService(
+            session,
+            owner_id=context.user_id,
+            thread_id=context.thread_id,
+        ).create_trip(**arguments)
         return _trip_result(trip)
 
 
 def get_trip_record(trip_id: int) -> dict[str, Any]:
     """Read a trip and its ordered itinerary through the application service."""
     with SessionLocal() as session:
-        service = TripService(session)
+        context = require_agent_context()
+        service = TripService(
+            session,
+            owner_id=context.user_id,
+            thread_id=context.thread_id,
+        )
         trip = service.get_trip(trip_id)
         if trip is None:
             return {"status": "not_found", "trip_id": trip_id}
@@ -97,7 +108,12 @@ def get_trip_record(trip_id: int) -> dict[str, Any]:
 def add_itinerary_item_record(**arguments: Any) -> dict[str, Any]:
     """Append an activity through the application service."""
     with SessionLocal() as session:
-        item = TripService(session).add_itinerary_item(**arguments)
+        context = require_agent_context()
+        item = TripService(
+            session,
+            owner_id=context.user_id,
+            thread_id=context.thread_id,
+        ).add_itinerary_item(**arguments)
         if item is None:
             return {"status": "not_found", "trip_id": arguments["trip_id"]}
         return {
@@ -144,7 +160,12 @@ def save_itinerary_record(
         )
 
     with SessionLocal() as session:
-        trip, stored_items = TripService(session).create_trip_with_items(
+        context = require_agent_context()
+        trip, stored_items = TripService(
+            session,
+            owner_id=context.user_id,
+            thread_id=context.thread_id,
+        ).create_trip_with_items(
             origin=origin,
             destination=requirement.destination,
             start_at=requirement.start_at,

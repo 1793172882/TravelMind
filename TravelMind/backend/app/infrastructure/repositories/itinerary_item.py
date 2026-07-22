@@ -31,3 +31,17 @@ class ItineraryItemRepository:
             .order_by(ItineraryItem.day_number, ItineraryItem.sort_order)
         )
         return self.session.scalars(statement).all()
+
+    def get_by_id(self, item_id: int, trip_id: int) -> ItineraryItem | None:
+        statement = select(ItineraryItem).where(
+            ItineraryItem.id == item_id,
+            ItineraryItem.trip_id == trip_id,
+        )
+        return self.session.scalar(statement)
+
+    def delete(self, item: ItineraryItem) -> None:
+        self.session.delete(item)
+
+    def delete_by_trip_id(self, trip_id: int) -> None:
+        for item in self.list_by_trip_id(trip_id):
+            self.session.delete(item)

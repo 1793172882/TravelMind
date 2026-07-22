@@ -20,9 +20,9 @@ def test_add_trip_uses_current_session() -> None:
 def test_get_trip_by_id() -> None:
     session = Mock(spec=Session)
     trip = Trip(origin="北京", destination="上海")
-    session.get.return_value = trip
+    session.scalar.return_value = trip
 
-    result = TripRepository(session).get_by_id(1001)
+    result = TripRepository(session).get_by_id(1001, "web:1")
 
     assert result is trip
-    session.get.assert_called_once_with(Trip, 1001)
+    session.scalar.assert_called_once()
