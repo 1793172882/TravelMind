@@ -109,3 +109,21 @@ CREATE TABLE IF NOT EXISTS itinerary_items (
     PRIMARY KEY (id),
     INDEX idx_itinerary_items_trip_order (trip_id, day_number, sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行程日程项表';
+
+CREATE TABLE IF NOT EXISTS knowledge_documents (
+    id VARCHAR(36) NOT NULL COMMENT '文档UUID',
+    owner_id VARCHAR(200) NOT NULL COMMENT '逻辑用户标识',
+    filename VARCHAR(255) NOT NULL COMMENT '原始文件名',
+    title VARCHAR(255) NOT NULL COMMENT '知识标题',
+    source VARCHAR(500) NULL COMMENT '来源',
+    city VARCHAR(100) NULL COMMENT '城市过滤',
+    category VARCHAR(100) NULL COMMENT '知识分类',
+    content_type VARCHAR(100) NOT NULL COMMENT '上传内容类型',
+    chunk_count INT NOT NULL COMMENT 'Chunk数量',
+    status VARCHAR(20) NOT NULL DEFAULT 'ready' COMMENT '索引状态',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    INDEX idx_knowledge_documents_owner (owner_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RAG知识文档元数据';

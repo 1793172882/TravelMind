@@ -11,6 +11,7 @@ LangChain create_agent + LangGraph Checkpoint
     ↓
 Harness（Registry → Permission → Interrupt → Retry）
     ├── 本地工具：预算、约束、行程、Memory、Task、Skill
+    ├── RAG：用户文档 → 千问 Embedding → Chroma → knowledge.search
     ├── 高德 Web 服务：地理编码、POI、天气、路线、静态地图
     └── MCP Manager：飞书远程 MCP、官方 lark-mcp、其他 MCP Server
 
@@ -27,13 +28,14 @@ HTTP 行程接口：Controller → Service → Repository → SQLAlchemy → MyS
 | 出行工具 | 预算计算、行程约束校验、高德地理编码、POI、天气、步行/驾车/公交路线 |
 | 数据 | MySQL 行程和日程 CRUD、完整行程单事务保存、用户/会话隔离 |
 | 记忆与任务 | MySQL 用户偏好、带依赖 Task、按需加载本地 Skill |
+| Agentic RAG | TXT/Markdown/PDF 入库、千问 Embedding、Chroma 持久化、用户级过滤、来源引用 |
 | MCP | stdio 与 Streamable HTTP、动态工具发现、独立 Session、单 Server 故障隔离 |
 | 飞书 | Webhook 验证/去重、消息回复、审批回复、文档/日历/消息工具、Outbox 重试 |
 | 自动化 | 出发前 24/2 小时天气复查、Agent 调整建议、飞书主动通知 |
-| Web 产品 | 登录注册、Agent 对话、SSE 进度、审批、聊天历史、行程管理、静态地图 |
+| Web 产品 | 登录注册、Agent 对话、SSE 进度、审批、行程管理、知识库上传/检索/删除、静态地图 |
 | 评测 | 100 条中文用例，统计任务完成率、工具选择、约束、审批与 P50/P95 延迟 |
 
-当前自动化检查为 **40 passed**。项目定位是本地可运行、可演示、可用于简历讲解的产品级 MVP，不包含云端部署和多 Agent。
+当前自动化检查为 **46 passed**。项目定位是本地可运行、可演示、可用于简历讲解的产品级 MVP，不包含云端部署和多 Agent。
 
 ## 项目结构
 
@@ -49,11 +51,12 @@ TravelMind/
 │   │   ├── harness/             # 工具、权限、恢复、记忆、任务、Skill、Scheduler
 │   │   ├── mcp/                 # MCP Client Manager、认证与工具适配
 │   │   ├── channels/            # 飞书入站渠道
+│   │   ├── rag/                 # 文档解析、切分、Chroma 向量检索
 │   │   ├── tools/               # 本地业务工具和高德工具
 │   │   └── main.py              # 应用组合根与 lifespan
 │   ├── evals/                   # 100 条 Agent 评测数据
 │   ├── scripts/                 # MCP 检查、真实 Agent 评测
-│   ├── tests/                   # 40 项自动化检查
+│   ├── tests/                   # 46 项自动化检查
 │   ├── schema.sql
 │   └── pyproject.toml
 ├── frontend/                    # 无 Node 依赖的原生 Web 页面
@@ -107,6 +110,7 @@ Copy-Item config\mcp.example.json config\mcp.json
 | 集成 | 关键配置 | 用途 |
 |---|---|---|
 | 千问 | `DASHSCOPE_API_KEY` | 对话与工具调用 |
+| Chroma RAG | 同上、`EMBEDDING_MODEL`、`CHROMA_PERSIST_DIR` | 私有资料向量化与检索 |
 | 高德 | `AMAP_API_KEY` | 地点、POI、天气、路线、地图 |
 | 飞书入站 | `FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY` | Webhook 校验 |
 | 飞书官方 MCP | `FEISHU_APP_ID`、`FEISHU_APP_SECRET` | tenant token 与远程文档工具 |
@@ -145,6 +149,10 @@ POST/GET /trips/{trip_id}/items
 PATCH/DELETE /trips/{trip_id}/items/{item_id}
 GET /trips/{trip_id}/map
 
+POST /knowledge/documents        GET /knowledge/documents
+DELETE /knowledge/documents/{document_id}
+POST /knowledge/search
+
 GET /automations                 POST /automations/run
 POST /webhooks/feishu
 GET /health                      GET /version
@@ -177,6 +185,7 @@ python scripts/evaluate.py
 - 飞书代码链路已完成，但真实端到端验收依赖应用权限、版本发布、事件订阅和公网 HTTPS Webhook。
 - 静态地图展示地点标记，不提供交互式道路折线。
 - `/metrics` 与 SSE 事件保存在单进程内存中，重启后清空。
+- Chroma 当前是本地单进程持久化；PDF 只解析文本层，不包含扫描件 OCR。
 - 项目没有 Alembic 版本化迁移、Docker Compose、CI/CD、云部署和多 Agent。
 - 不做自动付款、抢票、下单、非官方微信登录或无数据依据的实时价格承诺。
 
@@ -189,3 +198,4 @@ python scripts/evaluate.py
 5. [项目驱动学习路线](docs/05-project-learning-guide.md)
 6. [数据模型、API 与测试](docs/06-data-api-testing.md)
 7. [项目结构与模块职责](docs/07-project-structure.md)
+8. [初学者完整项目教程](docs/08-beginner-project-tutorial.md)

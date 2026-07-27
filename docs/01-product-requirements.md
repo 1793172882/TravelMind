@@ -79,7 +79,8 @@ TravelMind Agent → MCP Client → 飞书消息/文档/日历
 - MCP stdio/Streamable HTTP、动态工具发现和飞书工具接入。
 - 飞书入站消息、审批回复、外部写入和天气通知。
 - 原生响应式 Web 产品界面。
-- 100 条真实 Agent 评测集与 40 项自动化检查。
+- 私有知识库：TXT/Markdown/PDF 入库、千问 Embedding、Chroma 检索、用户隔离和来源引用。
+- 100 条真实 Agent 评测集与 46 项自动化检查。
 
 ### 需要真实环境验收
 
@@ -89,7 +90,7 @@ TravelMind Agent → MCP Client → 飞书消息/文档/日历
 ### 明确不做
 
 - Docker Compose、CI/CD、云端部署。
-- 多 Agent、微服务、Redis、向量数据库。
+- 多 Agent、微服务、Redis、独立向量数据库服务。
 - 自动付款、抢票、代下单。
 - 非官方个人微信模拟登录。
 - 酒店/车票实时最低价承诺。

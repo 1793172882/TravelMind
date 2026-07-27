@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     model_api_key: SecretStr | None = None
     model_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_api_key: SecretStr | None = None
+    embedding_model: str = "text-embedding-v4"
+    chroma_persist_dir: Path = PROJECT_ROOT / "backend" / "data" / "chroma"
+    chroma_collection: str = "travelmind_knowledge"
+    rag_chunk_size: int = 800
+    rag_chunk_overlap: int = 120
+    rag_top_k: int = 4
+    rag_max_file_bytes: int = 10 * 1024 * 1024
     amap_api_key: SecretStr | None = None
     amap_timeout_seconds: float = 10
     context_compact_trigger_messages: int = 40
@@ -48,10 +55,10 @@ class Settings(BaseSettings):
         "calendar.v4.calendarEvent.create"
     )
 
-    @field_validator("mcp_config_path")
+    @field_validator("mcp_config_path", "chroma_persist_dir")
     @classmethod
-    def resolve_mcp_config_path(cls, value: Path) -> Path:
-        """Resolve relative MCP config paths from the repository root."""
+    def resolve_project_path(cls, value: Path) -> Path:
+        """Resolve relative configuration paths from the repository root."""
         return value if value.is_absolute() else PROJECT_ROOT / value
 
     @property

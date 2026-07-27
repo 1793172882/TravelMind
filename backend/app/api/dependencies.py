@@ -10,6 +10,7 @@ from app.agent.runtime import TravelAgentRuntime, build_agent_runtime
 from app.config import settings
 from app.infrastructure.database import get_db
 from app.services.trip import TripService
+from app.services.knowledge import KnowledgeService
 from app.services.auth import ANONYMOUS_USER, AuthenticationError, UserIdentity, parse_token
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -49,6 +50,21 @@ def get_trip_service(
 
 
 TripServiceDependency = Annotated[TripService, Depends(get_trip_service)]
+
+
+def get_knowledge_service(
+    request: Request,
+    session: DatabaseSession,
+    user: CurrentUserDependency,
+) -> KnowledgeService:
+    """Build a user-scoped RAG service over the shared Chroma collection."""
+    store = getattr(request.app.state, "knowledge_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="RAG 未配置，请检查 DASHSCOPE_API_KEY")
+    return KnowledgeService(session, store, owner_id=user.user_id)
+
+
+KnowledgeServiceDependency = Annotated[KnowledgeService, Depends(get_knowledge_service)]
 
 
 def resolve_agent_runtime(request: Request) -> TravelAgentRuntime:

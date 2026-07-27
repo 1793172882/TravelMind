@@ -24,12 +24,17 @@ const elements = {
   authDialog: $("#auth-dialog"),
   authForm: $("#auth-form"),
   authButton: $("#auth-button"),
+  knowledgeForm: $("#knowledge-upload-form"),
+  knowledgeDocuments: $("#knowledge-documents"),
+  knowledgeSearchForm: $("#knowledge-search-form"),
+  knowledgeResults: $("#knowledge-search-results"),
 };
 
 const pageMeta = {
   dashboard: ["旅行控制台", greeting()],
   assistant: ["AI TRAVEL CONCIERGE", "和 TravelMind 一起规划"],
   trips: ["JOURNEY COLLECTION", "我的全部行程"],
+  knowledge: ["TRAVEL KNOWLEDGE", "我的旅行知识库"],
 };
 
 const state = {
@@ -44,6 +49,7 @@ const state = {
   token: localStorage.getItem("travelmind.token") || "",
   user: null,
   eventAbort: null,
+  knowledge: [],
 };
 
 function greeting() {
@@ -85,9 +91,11 @@ function statusText(status) {
 async function request(path, options = {}) {
   let response;
   try {
+    const headers = { ...authHeaders(), ...(options.headers || {}) };
+    if (!(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
     response = await fetch(path, {
-      headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers || {}) },
       ...options,
+      headers,
     });
   } catch {
     throw new Error("无法连接 TravelMind 服务，请确认后端已经启动");
@@ -206,6 +214,7 @@ function navigate(view, updateHash = true) {
   if (updateHash) history.replaceState(null, "", `#${view}`);
   closeMobileMenu();
   if (view === "trips") renderTrips();
+  if (view === "knowledge") loadKnowledge();
   if (view === "assistant") setTimeout(() => elements.messageInput.focus(), 100);
 }
 
@@ -250,6 +259,127 @@ async function loadTrips({ quiet = false } = {}) {
     renderRecentError(error.message);
     renderTripsError(error.message);
     if (!quiet) toast("行程读取失败", error.message, "error");
+  }
+}
+
+async function loadKnowledge() {
+  elements.knowledgeDocuments.replaceChildren(createSkeleton(), createSkeleton());
+  try {
+    state.knowledge = await request("/knowledge/documents");
+    renderKnowledge();
+  } catch (error) {
+    state.knowledge = [];
+    elements.knowledgeDocuments.replaceChildren(
+      knowledgeEmpty("知识库读取失败", error.message),
+    );
+    $("#knowledge-count").textContent = "读取失败";
+  }
+}
+
+function knowledgeEmpty(title, copy) {
+  const empty = node("div", "empty-state knowledge-empty");
+  empty.append(node("span", "", "⌕"), node("h3", "", title), node("p", "", copy));
+  return empty;
+}
+
+function renderKnowledge() {
+  $("#knowledge-count").textContent = `${state.knowledge.length} 个文档`;
+  elements.knowledgeDocuments.replaceChildren();
+  if (!state.knowledge.length) {
+    elements.knowledgeDocuments.append(
+      knowledgeEmpty("还没有知识文档", "上传攻略、景区政策或自己的旅行笔记开始构建 RAG。"),
+    );
+    return;
+  }
+  state.knowledge.forEach((document) => {
+    const card = node("article", "knowledge-document surface");
+    const icon = node("span", "knowledge-file", document.filename.split(".").pop().toUpperCase());
+    const copy = node("div", "knowledge-document-copy");
+    copy.append(node("strong", "", document.title));
+    copy.append(
+      node(
+        "small",
+        "",
+        [document.city, document.category, `${document.chunk_count} chunks`]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    );
+    copy.append(node("span", "", `来源：${document.source || document.filename}`));
+    const actions = node("div", "knowledge-document-actions");
+    actions.append(node("time", "", formatDate(document.created_at)));
+    const remove = node("button", "text-button", "删除");
+    remove.type = "button";
+    remove.dataset.knowledgeDelete = document.id;
+    actions.append(remove);
+    card.append(icon, copy, actions);
+    elements.knowledgeDocuments.append(card);
+  });
+}
+
+async function uploadKnowledge(event) {
+  event.preventDefault();
+  const button = $("#knowledge-upload-button");
+  const form = new FormData(elements.knowledgeForm);
+  setButtonBusy(button, true, "正在解析和向量化…");
+  try {
+    const document = await request("/knowledge/documents", { method: "POST", body: form });
+    elements.knowledgeForm.reset();
+    await loadKnowledge();
+    toast("知识文档已建立索引", `${document.chunk_count} 个文本片段`);
+  } catch (error) {
+    toast("知识文档上传失败", error.message, "error");
+  } finally {
+    setButtonBusy(button, false);
+  }
+}
+
+async function deleteKnowledge(documentId) {
+  if (!window.confirm("确认删除这个文档及其全部向量片段吗？")) return;
+  try {
+    await request(`/knowledge/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+    await loadKnowledge();
+    toast("知识文档已删除");
+  } catch (error) {
+    toast("删除失败", error.message, "error");
+  }
+}
+
+async function previewKnowledgeSearch(event) {
+  event.preventDefault();
+  const button = $("#knowledge-search-button");
+  const data = new FormData(elements.knowledgeSearchForm);
+  setButtonBusy(button, true, "检索中…");
+  elements.knowledgeResults.replaceChildren(createSkeleton());
+  try {
+    const hits = await request("/knowledge/search", {
+      method: "POST",
+      body: JSON.stringify({ query: data.get("query"), top_k: 4 }),
+    });
+    elements.knowledgeResults.replaceChildren();
+    if (!hits.length) {
+      elements.knowledgeResults.append(
+        node("div", "knowledge-placeholder", "没有找到相关内容，请调整问题或先上传资料。"),
+      );
+      return;
+    }
+    hits.forEach((hit) => {
+      const item = node("article", "knowledge-hit");
+      const title = node("strong", "", hit.title || hit.filename);
+      const source = node(
+        "small",
+        "",
+        `${hit.source || hit.filename}${hit.page ? ` · 第 ${hit.page} 页` : ""}`,
+      );
+      item.append(title, source, node("p", "", hit.text));
+      elements.knowledgeResults.append(item);
+    });
+  } catch (error) {
+    elements.knowledgeResults.replaceChildren(
+      node("div", "knowledge-placeholder is-error", error.message),
+    );
+  } finally {
+    setButtonBusy(button, false);
   }
 }
 
@@ -852,6 +982,8 @@ function bindEvents() {
     if (event.target.closest("[data-open-create]")) openCreateDialog();
     const tripButton = event.target.closest("[data-trip-id]");
     if (tripButton) openTripDrawer(tripButton.dataset.tripId);
+    const knowledgeDelete = event.target.closest("[data-knowledge-delete]");
+    if (knowledgeDelete) deleteKnowledge(knowledgeDelete.dataset.knowledgeDelete);
   });
   $("#menu-button").addEventListener("click", openMobileMenu);
   elements.overlay.addEventListener("click", () => { closeMobileMenu(); closeTripDrawer(); });
@@ -866,6 +998,8 @@ function bindEvents() {
   $("#trip-search").addEventListener("input", renderTrips);
   $("#trip-status-filter").addEventListener("change", renderTrips);
   elements.chatForm.addEventListener("submit", sendChat);
+  elements.knowledgeForm.addEventListener("submit", uploadKnowledge);
+  elements.knowledgeSearchForm.addEventListener("submit", previewKnowledgeSearch);
   elements.messageInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); elements.chatForm.requestSubmit(); }
   });

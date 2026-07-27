@@ -17,7 +17,8 @@
 | 6. MCP Host | 完成 | stdio、Streamable HTTP、动态工具发现、故障隔离 |
 | 7. 飞书协作 | 代码完成 | Webhook、审批回复、文档/日历/消息；待真实环境验收 |
 | 8. 自动任务 | 完成 | 24h/2h 天气复查、Agent 建议、Outbox、飞书通知 |
-| 9. 产品与评测 | 完成 | 产品级前端、100 条评测、40 项自动化检查 |
+| 9. Agentic RAG | 完成 | TXT/Markdown/PDF、千问 Embedding、Chroma、知识检索工具、来源引用 |
+| 10. 产品与评测 | 完成 | 产品级前端、100 条评测、46 项自动化检查 |
 | 部署/多 Agent | 明确排除 | 当前简历项目不做 Docker、CI/CD、云部署、多 Agent |
 
 ## 3. 阶段 0：工程与 FastAPI
@@ -177,7 +178,23 @@ READ 工具的超时/连接错误最多重试两次；EventBroker 为前端和�
 
 当前只生成建议，不自动修改行程。
 
-## 12. 阶段 9：产品与评测
+## 12. 阶段 9：Agentic RAG
+
+### 已实现
+
+- TXT、Markdown、PDF 文本层解析和有重叠的 Chunk 切分。
+- 使用阿里云百炼 `text-embedding-v4` 生成向量。
+- Chroma 本地持久化 Chunk、来源和用户归属。
+- MySQL `knowledge_documents` 保存文档目录。
+- `knowledge.search` 作为 Harness READ 工具按需供 Agent 调用。
+- Web 页面支持上传、列表、检索预览和删除。
+- 测试覆盖真实 Chroma、用户隔离、Service、工具和上传 API。
+
+### 当前边界
+
+扫描 PDF 不做 OCR；Chroma 不是独立服务；知识只对上传用户可见；天气和路线仍必须使用高德。
+
+## 13. 阶段 10：产品与评测
 
 ### Web 产品
 
@@ -201,13 +218,13 @@ POI 12             路线 16          偏好 10
 
 评测脚本读取 `/chat/{thread_id}/events/snapshot`，因此能够检查实际工具轨迹，不再只判断回复非空。
 
-## 13. 当前 Definition of Done
+## 14. 当前 Definition of Done
 
 本地代码完成标准：
 
 - Ruff 通过。
 - `node --check frontend/app.js` 通过。
-- pytest 当前 40 项通过。
+- pytest 当前 46 项通过。
 - `.env`、`config/mcp.json` 没有进入 Git。
 - README、API、数据表和功能边界与代码一致。
 

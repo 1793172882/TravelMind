@@ -6,6 +6,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.automations import router as automations_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.health import router as health_router 
+from app.api.routes.knowledge import router as knowledge_router
 from app.api.routes.trips import router as trips_router 
 from app.api.routes.webhooks import router as webhooks_router
 
@@ -15,6 +16,7 @@ api_router.include_router(health_router)
 api_router.include_router(auth_router)
 api_router.include_router(automations_router)
 api_router.include_router(trips_router)
+api_router.include_router(knowledge_router)
 api_router.include_router(chat_router)
 api_router.include_router(approvals_router)
 api_router.include_router(webhooks_router)

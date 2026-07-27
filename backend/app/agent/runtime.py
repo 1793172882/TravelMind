@@ -50,6 +50,8 @@ from app.tools.trips import (
     save_itinerary_record,
 )
 from app.tools.weather import WeatherArgs, query_weather
+from app.rag.vector_store import ChromaKnowledgeStore
+from app.tools.knowledge import KnowledgeSearchArgs, search_knowledge
 
 
 def build_default_registry(
@@ -57,11 +59,31 @@ def build_default_registry(
     memory_store: MemoryStore | None = None,
     task_store: TaskStore | None = None,
     skill_loader: SkillLoader | None = None,
+    knowledge_store: ChromaKnowledgeStore | None = None,
 ) -> ToolRegistry:
     """Register the local tools available in the first runnable Agent."""
     memory_store = memory_store or MemoryStore()
     task_store = task_store or TaskStore()
     registry = ToolRegistry()
+    if knowledge_store is not None:
+        registry.register(
+            ToolDefinition(
+                name="knowledge.search",
+                description=(
+                    "检索当前用户上传的攻略、政策和旅行资料。仅用于非实时知识，"
+                    "回答必须标明返回结果中的来源；天气和路线仍使用高德工具。"
+                ),
+                args_model=KnowledgeSearchArgs,
+                handler=lambda query, city, category, top_k: search_knowledge(
+                    knowledge_store,
+                    query=query,
+                    city=city,
+                    category=category,
+                    top_k=top_k,
+                ),
+                risk_level=RiskLevel.READ,
+            )
+        )
     registry.register(
         ToolDefinition(
             name="memory.save_preferences",
@@ -368,6 +390,7 @@ def build_agent_runtime(
     task_store: TaskStore | None = None,
     skill_loader: SkillLoader | None = None,
     events: EventBroker | None = None,
+    knowledge_store: ChromaKnowledgeStore | None = None,
 ) -> TravelAgentRuntime:
     """Build the real model runtime or accept a Fake model for tests."""
     if model is None:
@@ -388,6 +411,7 @@ def build_agent_runtime(
             memory_store=memory_store,
             task_store=task_store,
             skill_loader=skill_loader,
+            knowledge_store=knowledge_store,
         ),
         events=events,
     )

@@ -28,6 +28,7 @@ from app.harness.scheduler import Scheduler
 from app.mcp.config import MCPConfig
 from app.mcp.manager import MCPManager
 from app.mcp.tool_adapter import register_mcp_tools
+from app.rag.vector_store import build_knowledge_store
 
 
 @asynccontextmanager
@@ -38,10 +39,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     task_store = TaskStore(SessionLocal)
     skill_loader = SkillLoader(settings.skills_path)
     events = EventBroker()
+    knowledge_store = (
+        build_knowledge_store()
+        if settings.dashscope_api_key is not None or settings.model_api_key is not None
+        else None
+    )
     registry = build_default_registry(
         memory_store=memory_store,
         task_store=task_store,
         skill_loader=skill_loader,
+        knowledge_store=knowledge_store,
     )
     manager = MCPManager(MCPConfig.load(settings.mcp_config_path))
     await manager.start()
@@ -65,6 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 task_store=task_store,
                 skill_loader=skill_loader,
                 events=events,
+                knowledge_store=knowledge_store,
             )
             app.state.agent_runtime = runtime
         thread_id = job.thread_id or f"scheduler:trip:{trip.id}"
@@ -105,6 +113,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.task_store = task_store
     app.state.skill_loader = skill_loader
     app.state.events = events
+    app.state.knowledge_store = knowledge_store
     app.state.outbox = outbox
     app.state.outbox_worker = outbox_worker
     app.state.scheduler = scheduler

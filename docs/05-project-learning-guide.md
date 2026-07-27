@@ -189,9 +189,38 @@ tools/amap.py
 
 ### 完成标准
 
-能够解释短期上下文、长期偏好、任务状态和按需知识为什么需要四种不同机制。
+能够解释短期上下文、长期偏好、任务状态和 Skill 为什么需要四种不同机制。
 
-## 8. 第七阶段：MCP
+## 8. 第七阶段：Agentic RAG
+
+### 阅读顺序
+
+```text
+rag/loaders.py
+→ rag/vector_store.py
+→ services/knowledge.py
+→ tools/knowledge.py
+→ agent/runtime.py::build_default_registry
+→ api/routes/knowledge.py
+→ tests/test_rag.py
+```
+
+### 必须掌握
+
+- RAG 入库链路：解析、切分、Embedding、向量持久化。
+- MySQL 文档元数据与 Chroma Chunk 为什么分开保存。
+- `owner_id` 为什么来自运行上下文，而不能由模型传入。
+- RAG 为什么适合攻略和政策，却不能替代实时天气与路线。
+- 检索结果为什么必须保留来源，并防范文档提示词注入。
+
+### 实验
+
+- 上传一份 Markdown 攻略，在知识库页面检索其中的独特句子。
+- 使用另一个账号搜索，确认无法读到前一个账号的资料。
+- 删除文档后再次检索，确认对应 Chunk 已移除。
+- 运行 `python -m pytest tests/test_rag.py -q`。
+
+## 9. 第八阶段：MCP
 
 ### 阅读顺序
 
@@ -222,7 +251,7 @@ python -m pytest tests/test_mcp.py -q
 
 再启用 Fake MCP，观察工具名称由 Server 命名空间限定。
 
-## 9. 第八阶段：飞书 Channel 与 MCP
+## 10. 第九阶段：飞书 Channel 与 MCP
 
 ### 阅读顺序
 
@@ -247,7 +276,7 @@ channels/feishu.py
 - 运行飞书 Token 缓存测试。
 - 在真实飞书环境完成一次审批回复。
 
-## 10. 第九阶段：Scheduler 与主动 Agent
+## 11. 第十阶段：Scheduler 与主动 Agent
 
 ### 阅读顺序
 
@@ -271,7 +300,7 @@ harness/scheduler.py
 - 调整 Job 的 `run_at` 后调用 `POST /automations/run`。
 - 查看 `scheduled_jobs.result` 和飞书通知。
 
-## 11. 第十阶段：评测
+## 12. 第十一阶段：评测
 
 ### 阅读顺序
 
@@ -299,7 +328,7 @@ python scripts/evaluate.py --limit 10
 
 确认成本和外部服务稳定后再运行全部 100 条。报告中的真实数字才可以写进简历。
 
-## 12. 面试表达模板
+## 13. 面试表达模板
 
 每个亮点都按“问题—设计—实现—验证—边界”表达。例如：
 

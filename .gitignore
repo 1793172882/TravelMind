@@ -9,3 +9,5 @@ __pycache__/
 dist/
 build/
 node_modules/
+backend/data/chroma/
+backend/.pytest-tmp/

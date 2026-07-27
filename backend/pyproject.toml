@@ -17,6 +17,9 @@ dependencies = [
     "langgraph>=1,<2",
     "langgraph-checkpoint-mysql[aiomysql]>=2,<3",
     "langchain-openai>=1,<2",
+    "chromadb>=1,<2",
+    "pypdf>=6,<7",
+    "python-multipart>=0.0.20,<1",
     "mcp>=1.12,<2",
     "httpx>=0.28,<1",
 ]
@@ -34,3 +37,6 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.setuptools.packages.find]
+include = ["app*"]

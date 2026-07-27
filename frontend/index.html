@@ -32,6 +32,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6V4m8 2V4M4 9h16M6 5h12a2 2 0 0 1 2 2v12H4V7a2 2 0 0 1 2-2Z"/><path d="M8 13h3m2 0h3m-8 3h3"/></svg>
             <span>我的行程</span>
           </button>
+          <button class="nav-item" type="button" data-nav="knowledge">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 20a3 3 0 0 1 3-3h8M9 8h6m-6 4h6"/></svg>
+            <span>旅行知识库</span>
+          </button>
         </nav>
 
         <div class="sidebar-card">
@@ -121,6 +125,7 @@
                 <article><span class="capability-logo qwen">Q</span><div><strong>通义千问</strong><small>意图理解与行程推理</small></div><i></i></article>
                 <article><span class="capability-logo amap">A</span><div><strong>高德地图</strong><small>地点、天气与实时路线</small></div><i></i></article>
                 <article><span class="capability-logo harness">H</span><div><strong>Agent Harness</strong><small>工具权限、审批与重试</small></div><i></i></article>
+                <article><span class="capability-logo chroma">C</span><div><strong>Chroma RAG</strong><small>私有攻略检索与来源引用</small></div><i></i></article>
               </div>
             </section>
           </div>
@@ -210,12 +215,60 @@
           <div class="trip-list-heading"><div><span class="section-kicker">YOUR JOURNEYS</span><h2>全部行程</h2></div><span id="trip-count">0 个行程</span></div>
           <div id="trips" class="trip-grid" aria-live="polite"></div>
         </section>
+
+        <section id="view-knowledge" class="view" aria-labelledby="page-title" hidden>
+          <div class="knowledge-layout">
+            <section class="surface knowledge-card">
+              <div class="section-heading">
+                <div><span class="section-kicker">INGESTION</span><h2>添加旅行资料</h2></div>
+                <span class="pill">TXT · MD · PDF</span>
+              </div>
+              <p class="knowledge-intro">文档会被解析、切分并写入本地 Chroma；MySQL 只保存文档目录和用户归属。</p>
+              <form id="knowledge-upload-form" class="knowledge-form">
+                <label class="upload-drop">
+                  <span>选择知识文件</span>
+                  <small>单个文件不超过 10 MB</small>
+                  <input name="file" type="file" accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf" required />
+                </label>
+                <div class="knowledge-fields">
+                  <label><span>标题</span><input name="title" maxlength="255" placeholder="默认使用文件名" /></label>
+                  <label><span>来源</span><input name="source" maxlength="500" placeholder="例如：故宫官网" /></label>
+                  <label><span>城市</span><input name="city" maxlength="100" placeholder="例如：北京" /></label>
+                  <label><span>分类</span><input name="category" maxlength="100" placeholder="例如：景区政策" /></label>
+                </div>
+                <button id="knowledge-upload-button" class="button button-primary" type="submit">解析并建立索引</button>
+              </form>
+            </section>
+
+            <section class="surface knowledge-card">
+              <div class="section-heading">
+                <div><span class="section-kicker">RETRIEVAL</span><h2>检索效果预览</h2></div>
+                <span class="pill pill-success">用户隔离</span>
+              </div>
+              <p class="knowledge-intro">这里直接测试向量检索；对话中的 Agent 会通过 Harness 自主调用同一个检索能力。</p>
+              <form id="knowledge-search-form" class="knowledge-search">
+                <input name="query" minlength="2" maxlength="500" required placeholder="例如：带老人参观故宫需要注意什么？" />
+                <button id="knowledge-search-button" class="button button-secondary" type="submit">检索</button>
+              </form>
+              <div id="knowledge-search-results" class="knowledge-results" aria-live="polite">
+                <div class="knowledge-placeholder">上传资料后输入问题，检索结果会在这里显示来源和正文片段。</div>
+              </div>
+            </section>
+          </div>
+
+          <div class="trip-list-heading">
+            <div><span class="section-kicker">PRIVATE CORPUS</span><h2>我的知识文档</h2></div>
+            <span id="knowledge-count">0 个文档</span>
+          </div>
+          <div id="knowledge-documents" class="knowledge-documents" aria-live="polite"></div>
+        </section>
       </main>
 
       <nav class="mobile-nav" aria-label="移动端导航">
         <button class="is-active" type="button" data-nav="dashboard"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm10 7h6v-9h-6v9Z"/></svg><span>总览</span></button>
         <button type="button" data-nav="assistant"><svg viewBox="0 0 24 24"><path d="M5 18V10a7 7 0 0 1 14 0v8M8 12v6m8-6v6"/></svg><span>助手</span></button>
         <button type="button" data-nav="trips"><svg viewBox="0 0 24 24"><path d="M4 9h16M7 4v3m10-3v3M5 6h14v14H5Z"/></svg><span>行程</span></button>
+        <button type="button" data-nav="knowledge"><svg viewBox="0 0 24 24"><path d="M5 4h13v16H8a3 3 0 0 1-3-3V4Zm3 16a3 3 0 0 1 3-3h7"/></svg><span>知识库</span></button>
       </nav>
     </div>
 

@@ -38,6 +38,7 @@ def test_demo_ui_is_served() -> None:
     assert 'id="view-dashboard"' in response.text
     assert 'id="view-assistant"' in response.text
     assert 'id="view-trips"' in response.text
+    assert 'id="view-knowledge"' in response.text
     assert 'id="create-trip-dialog"' in response.text
 
 
@@ -132,6 +133,7 @@ def test_lifespan_and_feishu_webhook(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "feishu_verification_token", SecretStr("verify-me"))
     monkeypatch.setattr(settings, "mcp_config_path", tmp_path / "missing-mcp.json")
     monkeypatch.setattr("app.main.ensure_application_tables", Mock())
+    monkeypatch.setattr("app.main.build_knowledge_store", Mock())
     monkeypatch.setattr("app.main.EventDeduplicator", lambda **_: __import__(
         "app.channels.feishu", fromlist=["EventDeduplicator"]
     ).EventDeduplicator())

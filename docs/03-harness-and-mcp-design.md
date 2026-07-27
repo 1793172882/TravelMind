@@ -107,7 +107,7 @@ Memory 使用 MySQL `user_preferences`，按 `user_id` 隔离：
 }
 ```
 
-列表字段去重合并，明确提供的标量覆盖旧值。Memory 只保存用户明确表达的长期偏好，不保存整段聊天，不使用向量数据库。
+列表字段去重合并，明确提供的标量覆盖旧值。Memory 只保存用户明确表达的长期偏好，不保存整段聊天；向量检索是独立 RAG 能力，不与 Memory 混用。
 
 ## 6. Task
 
@@ -131,6 +131,21 @@ task.complete → 标记 completed 并写入结果
 - `family-travel`：老人/儿童低强度行程。
 
 Skill 只是按需知识，不持有密钥、不能执行代码，也不能绕过 Tool Registry。
+
+### RAG 检索工具
+
+`knowledge.search` 把 Chroma 检索包装成 Harness `READ` 工具。模型只能填写查询文本、城市、分类和 `top_k`，`owner_id` 从 `AgentContext` 取得，不能由模型伪造。
+
+```text
+Agent Tool Call
+→ ToolRegistry Pydantic 校验
+→ PermissionEngine 自动允许 READ
+→ Chroma 按 owner_id + 可选城市/分类检索
+→ 返回正文片段、标题、来源、页码和距离
+→ Agent 带来源组织答案
+```
+
+检索文本被视为不可信参考数据；系统 Prompt 明确要求忽略文档中试图改变规则或要求执行操作的指令。
 
 ## 8. MCP Host
 
@@ -213,4 +228,5 @@ Outbox 每 5 秒扫描可执行事件，失败后按 `2^attempts` 秒退避，�
 - 没有持久化 ToolAudit 表；执行轨迹当前保存在 EventBroker 内存和应用日志。
 - 没有工具级独立超时配置，外部 HTTP 工具使用各自客户端超时。
 - MCP JSON Schema 适配覆盖常见基本类型，不是完整 JSON Schema 实现。
+- Chroma 当前是单进程本地持久化，未实现独立向量服务和扫描件 OCR。
 - 不实现多 Agent，但未来 Agent 应共享 Registry、Permission、Memory、Task 和 MCP Manager。

@@ -30,6 +30,7 @@ def integrations(request: Request) -> dict:
     return {
         "qwen_configured": bool(settings.model_api_key or settings.dashscope_api_key),
         "amap_configured": settings.amap_api_key is not None,
+        "rag_configured": getattr(request.app.state, "knowledge_store", None) is not None,
         "feishu_app_configured": bool(settings.feishu_app_id and settings.feishu_app_secret),
         "mcp_servers": list(getattr(manager, "sessions", {})),
         "mcp_tools": tools,

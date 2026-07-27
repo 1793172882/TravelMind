@@ -20,6 +20,9 @@ flowchart LR
     Webhook --> API
     API --> Runtime["LangChain Agent Runtime"]
     Runtime --> Harness["TravelMind Harness"]
+    Harness --> RAG["knowledge.search"]
+    RAG --> Chroma["本地 Chroma"]
+    RAG --> Embed["千问 Embedding"]
     Harness --> AMap["高德 Web 服务"]
     Harness --> MCP["MCP Client Manager"]
     MCP --> Lark["飞书 MCP / lark-mcp"]
@@ -38,8 +41,9 @@ flowchart LR
 Agent 层        agent/runtime、prompts、state
 Harness 层      registry、permissions、middleware、memory、tasks、skills、scheduler
 领域层          domain/models、domain/constraints
-工具层          tools/*、mcp/tool_adapter
-基础设施层      SQLAlchemy models/repositories、checkpoint、outbox、MCP transport
+工具层          tools/*、mcp/tool_adapter、knowledge.search
+RAG 层         rag/loaders、rag/vector_store
+基础设施层      SQLAlchemy models/repositories、checkpoint、outbox、Chroma、MCP transport
 ```
 
 关键依赖规则：
@@ -57,7 +61,7 @@ Harness 层      registry、permissions、middleware、memory、tasks、skills�
 
 ```text
 创建/补齐业务表
-→ 创建 MemoryStore、TaskStore、SkillLoader、EventBroker
+→ 创建 MemoryStore、TaskStore、SkillLoader、EventBroker、ChromaKnowledgeStore
 → 注册本地 Tool Registry
 → 读取 config/mcp.json 并启动各 MCP Session
 → 动态注册 MCP 工具
@@ -144,9 +148,30 @@ harness_tasks       单 Agent 依赖任务
 webhook_events      飞书事件去重
 outbox_events       可靠 MCP 写入
 scheduled_jobs      24h/2h 天气复查
+knowledge_documents RAG 文档目录、归属和索引状态
 ```
 
 LangGraph Checkpoint 表由 Checkpointer 自己创建，不在 `schema.sql` 的业务表清单内。
+知识文档的 Chunk 和向量保存在 Chroma，MySQL 不重复保存向量。
+
+### RAG 知识数据流
+
+```mermaid
+flowchart LR
+    Upload["TXT / Markdown / PDF"] --> Loader["解析文本"]
+    Loader --> Splitter["重叠切分"]
+    Splitter --> Embed["千问 text-embedding-v4"]
+    Embed --> Chroma["Chroma Chunk + Metadata"]
+    Splitter --> Meta["MySQL knowledge_documents"]
+    Question["用户问题"] --> Agent["单 Agent"]
+    Agent --> Harness["Harness READ 管线"]
+    Harness --> Search["knowledge.search"]
+    Search --> Chroma
+    Chroma --> Evidence["正文片段 + 来源"]
+    Evidence --> Agent
+```
+
+RAG 用于攻略、政策和用户资料，不替代高德天气、POI 和路线。Chroma 查询始终带 `owner_id`，避免不同用户的资料互相检索。
 
 ## 8. 行程数据流
 
@@ -200,6 +225,7 @@ scheduled_jobs 到期
 - Web 会话通过 `web:{user_id}:{thread_id}` 命名。
 - 飞书群聊会话通过 `feishu:{chat_id}` 命名。
 - 行程 Repository 始终带 `owner_id` 查询条件。
+- Knowledge Repository 和 Chroma metadata filter 都带 `owner_id`。
 
 `AUTH_REQUIRED=true` 时，无 Bearer Token 的 Web API 请求返回 401；默认学习模式允许匿名访问。
 
@@ -211,9 +237,11 @@ scheduled_jobs 到期
 ├── MCP Manager
 ├── Scheduler
 ├── Outbox Worker
+├── Chroma PersistentClient
 └── 原生静态前端
 
 一个 MySQL 实例
+一个本地 Chroma 持久化目录
 外部：千问、高德、可选飞书 MCP
 ```
 

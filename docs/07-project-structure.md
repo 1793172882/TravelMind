@@ -17,15 +17,21 @@ TravelMind/
 │   │   │   │   ├── chat.py
 │   │   │   │   ├── approvals.py
 │   │   │   │   ├── trips.py
+│   │   │   │   ├── knowledge.py
 │   │   │   │   ├── automations.py
 │   │   │   │   └── webhooks.py
 │   │   │   └── schemas/
 │   │   │       ├── auth.py
 │   │   │       ├── chat.py
+│   │   │       ├── knowledge.py
 │   │   │       └── trips.py
 │   │   ├── services/
 │   │   │   ├── auth.py
+│   │   │   ├── knowledge.py
 │   │   │   └── trip.py
+│   │   ├── rag/
+│   │   │   ├── loaders.py
+│   │   │   └── vector_store.py
 │   │   ├── domain/
 │   │   │   ├── models.py
 │   │   │   └── constraints.py
@@ -51,6 +57,7 @@ TravelMind/
 │   │   │   ├── itinerary.py
 │   │   │   ├── trips.py
 │   │   │   ├── amap.py
+│   │   │   ├── knowledge.py
 │   │   │   └── weather.py
 │   │   ├── mcp/
 │   │   │   ├── config.py
@@ -64,7 +71,7 @@ TravelMind/
 │   │       ├── checkpoint.py
 │   │       ├── outbox.py
 │   │       ├── models/          # 一张业务表一个 ORM 文件
-│   │       └── repositories/    # trip、itinerary_item
+│   │       └── repositories/    # trip、itinerary_item、knowledge_document
 │   ├── evals/travel_cases.json
 │   ├── scripts/
 │   │   ├── check_mcp.py
@@ -93,11 +100,11 @@ API / Channel
       ↓
 Service 或 Agent Runtime
       ↓
-Harness / Domain
+Harness / Domain / RAG
       ↓
 Repository / Tool / MCP
       ↓
-MySQL / 外部服务
+MySQL / Chroma / 外部服务
 ```
 
 - Controller 不直接使用 SQLAlchemy Engine 或 Session 查询。
@@ -115,7 +122,7 @@ MySQL / 外部服务
 
 ### `.env.example`
 
-列出 MySQL、千问、高德、鉴权和飞书配置名。真实 `.env` 被 `.gitignore` 排除。
+列出 MySQL、千问、高德、RAG、鉴权和飞书配置名。真实 `.env` 被 `.gitignore` 排除。
 
 ### `config/mcp.example.json`
 
@@ -129,7 +136,7 @@ MySQL / 外部服务
 
 - 创建 FastAPI 并注册 `api_router`。
 - 挂载 `/ui` 静态页面。
-- lifespan 创建业务表、Store、Registry、MCP、Checkpoint、Scheduler 和 Outbox Worker。
+- lifespan 创建业务表、Store、Chroma、Registry、MCP、Checkpoint、Scheduler 和 Outbox Worker。
 - 定义天气复查调用 Agent 和飞书通知的组合逻辑。
 - 记录请求 ID、状态码和耗时。
 
@@ -147,7 +154,7 @@ Pydantic Settings；仓库根目录由 `Path(__file__).parents[2]` 计算，所�
 
 ### `api/dependencies.py`
 
-组合请求级数据库 Session、当前用户、TripService 和共享 Agent Runtime。身份隔离也在这里进入 Service/Runtime。
+组合请求级数据库 Session、当前用户、TripService、KnowledgeService 和共享 Agent Runtime。身份隔离也在这里进入 Service/Runtime。
 
 ### `api/routes/health.py`
 
@@ -168,6 +175,10 @@ Pydantic Settings；仓库根目录由 `Path(__file__).parents[2]` 计算，所�
 ### `api/routes/trips.py`
 
 行程和日程 CRUD、归档、静态地图。数据库操作全部通过 `TripService`；地图通过高德工具生成。
+
+### `api/routes/knowledge.py`
+
+知识文档上传、列表、检索预览和删除。Controller 只处理 multipart/JSON 与错误映射，入库和跨存储协调由 `KnowledgeService` 完成。
 
 ### `api/routes/automations.py`
 
@@ -197,6 +208,10 @@ PBKDF2 密码哈希、HMAC Token、注册登录、Token 解析和身份模型。
 - 创建/修改开始时间时更新天气 Job。
 - 删除/归档时取消 Job。
 
+### `services/knowledge.py`
+
+协调文档解析、Chunk 切分、千问 Embedding、Chroma 写入与 MySQL 元数据事务；所有操作按当前 `owner_id` 隔离。
+
 ### `infrastructure/repositories/trip.py`
 
 所有查询都包含 `owner_id`，保证用户隔离。
@@ -218,7 +233,10 @@ harness_task.py         harness_tasks
 webhook_event.py        webhook_events
 outbox_event.py         outbox_events
 scheduled_job.py        scheduled_jobs
+knowledge_document.py   knowledge_documents
 ```
+
+向量 Chunk 不是 MySQL ORM：它们位于 `backend/data/chroma`，目录被 Git 忽略。
 
 ## 7. Domain 层
 
@@ -317,7 +335,21 @@ Agent 使用的数据库工具，但仍只通过 `TripService` 访问数据库�
 
 高德天气当前/预报响应标准化。
 
-## 11. MCP 层
+### `tools/knowledge.py`
+
+定义 `knowledge.search` 参数并从 `AgentContext` 注入当前用户；通过线程池调用同步 Chroma，避免阻塞 Agent 事件循环。
+
+## 11. RAG 层
+
+### `rag/loaders.py`
+
+解析 TXT、Markdown 和 PDF 文本层，并按可配置大小和 overlap 生成 Chunk；PDF Chunk 保留页码。
+
+### `rag/vector_store.py`
+
+使用 `OpenAIEmbeddings` 连接千问兼容接口，使用 Chroma `PersistentClient` 保存、检索和删除 Chunk。查询强制加入 `owner_id` metadata filter，并返回正文、来源、页码和向量距离。
+
+## 12. MCP 层
 
 ### `mcp/config.py`
 
@@ -335,7 +367,7 @@ Agent 使用的数据库工具，但仍只通过 `TripService` 访问数据库�
 
 飞书 tenant token 获取、两小时缓存和远程 MCP 请求头。
 
-## 12. Channel 与 Outbox
+## 13. Channel 与 Outbox
 
 ### `channels/feishu.py`
 
@@ -345,17 +377,17 @@ Agent 使用的数据库工具，但仍只通过 `TripService` 访问数据库�
 
 持久 MCP 调用、幂等键、指数退避和后台分发。当前主要保护飞书回复和天气通知。
 
-## 13. 前端
+## 14. 前端
 
 前端实际实现集中在三个文件：
 
-- `index.html`：仪表盘、助手、行程、登录和详情抽屉结构。
+- `index.html`：仪表盘、助手、行程、知识库、登录和详情抽屉结构。
 - `styles.css`：响应式视觉、状态、组件和移动端布局。
-- `app.js`：HTTP/SSE、认证状态、审批、行程 CRUD、日程编辑和地图加载。
+- `app.js`：HTTP/SSE、认证状态、审批、行程 CRUD、知识上传/检索/删除、日程编辑和地图加载。
 
 `frontend/src/*` 目前只有 `.gitkeep`，不代表已经存在 React/Vue 模块。项目刻意不使用 Node 构建工具和前端框架。
 
-## 14. 评测与测试
+## 15. 评测与测试
 
 ### `evals/travel_cases.json`
 
@@ -371,9 +403,9 @@ Agent 使用的数据库工具，但仍只通过 `TripService` 访问数据库�
 
 ### `tests/*`
 
-当前测试按能力拆成 11 个 `test_*.py`，总计 40 项。`unit/integration/e2e` 子目录目前是预留空目录，实际测试仍平铺在 `tests/`。
+当前测试按能力拆成 12 个 `test_*.py`，总计 46 项，其中 `test_rag.py` 使用 Fake Embedding 驱动真实本地 Chroma。测试仍平铺在 `tests/`。
 
-## 15. Skills
+## 16. Skills
 
 当前两个 Skill 已被运行时发现：
 
@@ -384,7 +416,7 @@ skills/family-travel/SKILL.md
 
 Skill 不能调用数据库或外部服务，也不能改变工具风险等级。
 
-## 16. 推荐阅读顺序
+## 17. 推荐阅读顺序
 
 ```text
 1. main.py + api/router.py
@@ -393,10 +425,11 @@ Skill 不能调用数据库或外部服务，也不能改变工具风险等级�
 4. permissions.py → middleware.py → approvals.py → checkpoint.py
 5. domain/constraints.py → tools/trips.py
 6. memory.py → tasks.py → skills.py
-7. mcp/config.py → manager.py → tool_adapter.py
-8. channels/feishu.py → webhooks.py → outbox.py
-9. scheduler.py → main.py 的 replan
-10. scripts/evaluate.py + 100 条评测
+7. rag/loaders.py → vector_store.py → services/knowledge.py → tools/knowledge.py
+8. mcp/config.py → manager.py → tool_adapter.py
+9. channels/feishu.py → webhooks.py → outbox.py
+10. scheduler.py → main.py 的 replan
+11. scripts/evaluate.py + 100 条评测
 ```
 
 每读完一条链路，运行对应测试并画出数据流；不要一次背完整目录。

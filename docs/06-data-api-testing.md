@@ -123,6 +123,22 @@ created_at/updated_at
 
 保存行程的 `weather_24h`、`weather_2h` 任务、运行时间、状态、尝试次数、天气/建议结果和错误。
 
+### `knowledge_documents`
+
+```text
+id               文档 UUID
+owner_id         逻辑用户标识
+filename/title
+source           可选来源
+city/category    可选检索过滤字段
+content_type
+chunk_count
+status           当前为 ready
+created_at/updated_at
+```
+
+这里只保存目录元数据；Chunk、Embedding 和每个 Chunk 的引用元数据保存在 Chroma。
+
 ### LangGraph 表
 
 Checkpoint 表由 `langgraph-checkpoint-mysql` 创建。`TravelMindMySQLSaver` 只调整官方迁移 SQL，以兼容 MySQL 8.0.12 不允许 JSON 默认值的限制。
@@ -159,6 +175,7 @@ Authorization: Bearer <access_token>
 `GET /auth/me` 返回当前身份。`AUTH_REQUIRED=false` 时没有 Token 的请求使用匿名身份；设为 `true` 后强制登录。
 
 行程 Repository 按 `owner_id` 查询；Checkpoint thread 同样包含用户前缀，避免不同用户使用相同前端 `thread_id` 时串线。
+知识库同时在 MySQL Repository 和 Chroma metadata filter 中使用 `owner_id`。
 
 ## 6. Chat 与审批 API
 
@@ -255,7 +272,20 @@ POST /approvals/{thread_id}
 
 HTTP CRUD 不自动调用 Agent。自然语言规划和 `trip.save_itinerary` 是另一条 Agent 工具链，两者最终复用同一个 `TripService`。
 
-## 8. 自动任务、Webhook 与运维 API
+## 8. RAG 知识库 API
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| POST | `/knowledge/documents` | multipart 上传 TXT、Markdown 或 PDF 并建立索引 |
+| GET | `/knowledge/documents` | 当前用户文档目录 |
+| DELETE | `/knowledge/documents/{document_id}` | 删除目录和全部向量 Chunk |
+| POST | `/knowledge/search` | 按问题、城市、分类和 top_k 检索 |
+
+上传表单字段包括 `file`、可选 `title/source/city/category`。文件上限默认 10 MB；PDF 只解析可复制文本，不做 OCR。
+
+在线 Agent 不调用这些管理 API，而是通过 Harness 中的 `knowledge.search` READ 工具访问同一个 Chroma Store。工具的 `owner_id` 来自 `AgentContext`。
+
+## 9. 自动任务、Webhook 与运维 API
 
 ```text
 GET  /automations       当前用户天气任务
@@ -265,14 +295,14 @@ POST /webhooks/feishu   飞书事件入口
 GET /health             进程健康
 GET /version            应用版本
 GET /metrics            HTTP 计数与 Agent 事件计数
-GET /integrations       千问/高德/飞书/MCP 配置状态
+GET /integrations       千问/高德/RAG/飞书/MCP 配置状态
 ```
 
 `/health` 只表示进程存活；外部集成是否就绪应查看 `/integrations`。当前没有单独 `/ready`。
 
-## 9. 自动化测试
+## 10. 自动化测试
 
-当前 pytest 共 40 项，覆盖：
+当前 pytest 共 46 项，覆盖：
 
 - FastAPI、静态 UI、请求 Schema 和 Webhook lifespan。
 - Agent 线程上下文、本地工具注册和嵌套 Pydantic 参数。
@@ -283,6 +313,7 @@ GET /integrations       千问/高德/飞书/MCP 配置状态
 - 飞书 Token 缓存、签名、去重、消息幂等和飞书审批。
 - Auth、用户隔离、Memory、Task、Event、Outbox 和 Scheduler。
 - Repository/Service 的查询、事务提交与回滚。
+- 文档切分、真实 Chroma 检索、用户隔离、RAG Service、Harness 工具和上传 API。
 - 100 条评测数据的完整性和评分函数。
 
 运行：
@@ -296,7 +327,7 @@ node --check ..\frontend\app.js
 
 Windows 受限沙箱可能禁止 stdio MCP 创建子进程；在普通 Conda 终端运行即可。
 
-## 10. 真实 Agent 评测
+## 11. 真实 Agent 评测
 
 `backend/evals/travel_cases.json` 有 100 条中文任务：
 
@@ -324,7 +355,7 @@ python scripts/evaluate.py
 
 输出 JSON 到终端，并写入 `backend/evals/latest_report.md`。报告是运行产物，不应把尚未执行的指标写进简历。
 
-## 11. 功能完成标准
+## 12. 功能完成标准
 
 一个功能应同时具备：
 
